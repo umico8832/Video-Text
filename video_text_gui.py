@@ -35,6 +35,15 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QUrl
 
 import extract_subtitle
+from model_config import (
+    MISSING_WHISPER_MODEL_MESSAGE,
+    MODEL_CHOICES,
+    get_model_description,
+    get_model_settings_fields,
+    is_custom_model_choice,
+    resolve_model_from_settings,
+    resolve_selected_model,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -44,63 +53,6 @@ REQUIRED_ENV_KEYS = ("ffmpeg", "yt-dlp", "whisper")
 GPU_PACKAGES = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
 IS_WINDOWS = platform.system() == "Windows"
 
-MODEL_PLACEHOLDER = ""
-CUSTOM_MODEL_VALUE = "__custom__"
-CUSTOM_MODEL_LABEL = "自定义模型路径 / Hugging Face 模型名"
-MISSING_WHISPER_MODEL_MESSAGE = "未找到可用字幕，需要选择识别模型后再试。"
-
-MODEL_INFO = {
-    "tiny": {"desc": "速度最快，精度较低，适合快速预览或配置较低的设备。适合中文和英文音频。"},
-    "base": {"desc": "速度较快，精度一般，适合日常使用。适合中文和英文音频。"},
-    "small": {"desc": "速度与精度平衡，适合大多数场景。适合中文和英文音频。"},
-    "medium": {"desc": "精度较高，需要较多系统内存和显存。适合中文和英文音频。"},
-    "large-v1": {"desc": "大模型版本，精度较高，需要较多系统内存和显存。适合中文和英文音频。"},
-    "large-v2": {"desc": "大模型版本，精度较高，需要较多系统内存和显存。适合中文和英文音频。"},
-    "large-v3": {"desc": "最高精度，需要大量系统内存和显存，推荐有 GPU 的用户使用。适合中文和英文音频。"},
-    "large": {"desc": "large 是 large-v3 的别名。适合中文和英文音频。"},
-    "distil-large-v2": {"desc": "distil 模型。适合中文和英文音频。"},
-    "distil-large-v3": {"desc": "distil 模型。适合中文和英文音频。"},
-    "distil-large-v3.5": {"desc": "distil 模型。适合中文和英文音频。"},
-    "large-v3-turbo": {"desc": "turbo 模型。适合中文和英文音频。"},
-    "turbo": {"desc": "turbo 是 large-v3-turbo 的别名。适合中文和英文音频。"},
-    "tiny.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "base.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "small.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "medium.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "distil-small.en": {"desc": "distil 模型。英文专用，不建议用于中文视频。"},
-    "distil-medium.en": {"desc": "distil 模型。英文专用，不建议用于中文视频。"},
-}
-UNIVERSAL_MODELS = [
-    "tiny",
-    "base",
-    "small",
-    "medium",
-    "large-v1",
-    "large-v2",
-    "large-v3",
-    "large",
-    "distil-large-v2",
-    "distil-large-v3",
-    "distil-large-v3.5",
-    "large-v3-turbo",
-    "turbo",
-]
-ENGLISH_ONLY_MODELS = [
-    "tiny.en",
-    "base.en",
-    "small.en",
-    "medium.en",
-    "distil-small.en",
-    "distil-medium.en",
-]
-OFFICIAL_MODELS = UNIVERSAL_MODELS + ENGLISH_ONLY_MODELS
-MODEL_CHOICES = (
-    [("请选择识别模型（不会自动下载）", MODEL_PLACEHOLDER)]
-    + [(name, name) for name in UNIVERSAL_MODELS]
-    + [(f"{name}（英文专用）", name) for name in ENGLISH_ONLY_MODELS]
-    + [(CUSTOM_MODEL_LABEL, CUSTOM_MODEL_VALUE)]
-)
-MODELS = OFFICIAL_MODELS
 COOKIE_MODES = [
     {"name": "none", "label": "不使用 Cookies"},
     {"name": "browser", "label": "从浏览器读取"},
@@ -658,30 +610,11 @@ class MainWindow(QMainWindow):
 
     def update_model_info(self) -> None:
         model_name = self.model_combo.currentData()
-        is_custom = model_name == CUSTOM_MODEL_VALUE
+        is_custom = is_custom_model_choice(model_name)
         self.custom_model_label.setVisible(is_custom)
         self.custom_model_input.setVisible(is_custom)
         self.custom_model_pick_btn.setVisible(is_custom)
-
-        if not model_name:
-            self.model_info_label.setText(
-                "当前模型说明：请选择模型；模型只会在需要语音识别时加载，可能在首次使用时下载。"
-            )
-            return
-        if is_custom:
-            self.model_info_label.setText(
-                "当前模型说明：请确认本地目录或 Hugging Face 模型名兼容 faster-whisper / CTranslate2；"
-                "模型只会在需要语音识别时加载，可能在首次使用时下载。"
-            )
-            return
-
-        info = MODEL_INFO.get(model_name)
-        text = f"当前模型说明：{info['desc']} 模型只会在需要语音识别时加载，可能在首次使用时下载。"
-        if self.cuda_ok and model_name in ("tiny", "base"):
-            text += "\n检测到 GPU 可用，建议选择 medium 或 large-v3 以获得更好效果。"
-        elif not self.cuda_ok and model_name in ("medium", "large-v3"):
-            text += "\n未检测到 GPU，使用 CPU 运行此模型可能较慢，建议选择 small 或更小的模型。"
-        self.model_info_label.setText(text)
+        self.model_info_label.setText(get_model_description(model_name, cuda_ok=self.cuda_ok))
 
     def update_cookie_mode_ui(self) -> None:
         mode = self.cookie_mode_combo.currentData()
@@ -701,19 +634,10 @@ class MainWindow(QMainWindow):
             self.ytdlp_input.setText(self.settings.get("yt_dlp", ""))
             self.cookies_input.setText(self.settings.get("cookies", ""))
             self.output_dir_input.setText(self.settings.get("output_dir", DEFAULT_OUTPUT_DIR.name))
-            model = str(self.settings.get("model") or "").strip()
-            model_source = self.settings.get("model_source")
-            if model_source == "custom" and model:
-                self.model_combo.setCurrentIndex(self.model_combo.findData(CUSTOM_MODEL_VALUE))
-                self.custom_model_input.setText(model)
-            elif model in MODELS:
-                self.model_combo.setCurrentIndex(self.model_combo.findData(model))
-            elif model:
-                self.model_combo.setCurrentIndex(self.model_combo.findData(CUSTOM_MODEL_VALUE))
-                self.custom_model_input.setText(model)
-            else:
-                self.model_combo.setCurrentIndex(0)
-                self.custom_model_input.clear()
+            model_selection = resolve_model_from_settings(self.settings)
+            index = self.model_combo.findData(model_selection.selected_value)
+            self.model_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.custom_model_input.setText(model_selection.custom_value)
             self.device_combo.setCurrentText(self.settings.get("device", "auto"))
             cookie_mode = self.settings.get("cookie_mode", "none")
             cookie_mode_names = [m["name"] for m in COOKIE_MODES]
@@ -729,17 +653,12 @@ class MainWindow(QMainWindow):
         self.update_model_info()
 
     def selected_model_value(self) -> str:
-        model_data = self.model_combo.currentData()
-        if model_data == CUSTOM_MODEL_VALUE:
-            return self.custom_model_input.text().strip()
-        return model_data or ""
+        return resolve_selected_model(self.model_combo.currentData(), self.custom_model_input.text())
 
     def save_settings(self) -> None:
         if self.loading_settings:
             return
         model_data = self.model_combo.currentData()
-        model = self.selected_model_value()
-        model_source = "custom" if model_data == CUSTOM_MODEL_VALUE else "preset"
         settings = {
             "url": self.url_input.text().strip(),
             "ffmpeg": self.ffmpeg_input.text().strip(),
@@ -750,9 +669,7 @@ class MainWindow(QMainWindow):
             "cookie_mode": self.cookie_mode_combo.currentData(),
             "cookies_browser": COOKIE_BROWSERS[self.cookie_browser_combo.currentIndex()],
         }
-        if model_data:
-            settings["model_source"] = model_source
-            settings["model"] = model
+        settings.update(get_model_settings_fields(model_data, self.custom_model_input.text()))
         write_settings(settings)
 
     def set_status(self, message: str) -> None:
@@ -901,7 +818,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "缺少链接", "请先输入视频链接。")
             return
         model = self.selected_model_value()
-        if self.model_combo.currentData() == CUSTOM_MODEL_VALUE and not model:
+        if is_custom_model_choice(self.model_combo.currentData()) and not model:
             QMessageBox.warning(self, "缺少模型", "请填写本地模型路径或 Hugging Face 模型名。")
             return
         self.save_settings()
