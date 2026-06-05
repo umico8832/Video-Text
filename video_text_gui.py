@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import importlib.metadata
 import os
 import platform
@@ -39,16 +38,20 @@ from model_config import (
     MISSING_WHISPER_MODEL_MESSAGE,
     MODEL_CHOICES,
     get_model_description,
-    get_model_settings_fields,
     is_custom_model_choice,
     resolve_model_from_settings,
     resolve_selected_model,
 )
+from settings_manager import (
+    DEFAULT_OUTPUT_DIR,
+    build_settings_payload,
+    load_settings as read_settings,
+    save_settings as write_settings,
+    selected_output_dir as get_selected_output_dir,
+)
 
 
 ROOT = Path(__file__).resolve().parent
-SETTINGS_PATH = ROOT / "settings.json"
-DEFAULT_OUTPUT_DIR = ROOT / "outputs"
 REQUIRED_ENV_KEYS = ("ffmpeg", "yt-dlp", "whisper")
 GPU_PACKAGES = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
 IS_WINDOWS = platform.system() == "Windows"
@@ -65,35 +68,8 @@ def timestamp() -> str:
     return time.strftime("%H:%M:%S")
 
 
-def read_settings() -> dict:
-    if not SETTINGS_PATH.exists():
-        return {}
-    try:
-        return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def write_settings(settings: dict) -> None:
-    SETTINGS_PATH.write_text(
-        json.dumps(settings, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
 def path_exists(value: str) -> bool:
     return bool(value.strip()) and Path(value.strip()).exists()
-
-
-def is_default_output_dir(value: str) -> bool:
-    value = value.strip()
-    if not value:
-        return True
-    path = Path(value)
-    if path.name != DEFAULT_OUTPUT_DIR.name:
-        return False
-    candidate = path if path.is_absolute() else ROOT / path
-    return candidate.resolve() == DEFAULT_OUTPUT_DIR.resolve()
 
 
 def local_bin(name: str) -> Path:
@@ -590,10 +566,7 @@ class MainWindow(QMainWindow):
             self.custom_model_input.setText(path)
 
     def selected_output_dir(self) -> str:
-        value = self.output_dir_input.text().strip()
-        if is_default_output_dir(value):
-            return ""
-        return value
+        return get_selected_output_dir(self.output_dir_input.text())
 
     def toggle_env_advanced(self) -> None:
         self.env_advanced_visible = not self.env_advanced_visible
@@ -658,8 +631,7 @@ class MainWindow(QMainWindow):
     def save_settings(self) -> None:
         if self.loading_settings:
             return
-        model_data = self.model_combo.currentData()
-        settings = {
+        settings = build_settings_payload({
             "url": self.url_input.text().strip(),
             "ffmpeg": self.ffmpeg_input.text().strip(),
             "yt_dlp": self.ytdlp_input.text().strip(),
@@ -668,8 +640,9 @@ class MainWindow(QMainWindow):
             "device": self.device_combo.currentText(),
             "cookie_mode": self.cookie_mode_combo.currentData(),
             "cookies_browser": COOKIE_BROWSERS[self.cookie_browser_combo.currentIndex()],
-        }
-        settings.update(get_model_settings_fields(model_data, self.custom_model_input.text()))
+            "selected_model": self.model_combo.currentData(),
+            "custom_model": self.custom_model_input.text(),
+        })
         write_settings(settings)
 
     def set_status(self, message: str) -> None:
