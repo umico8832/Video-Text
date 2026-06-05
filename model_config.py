@@ -1,33 +1,151 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parent
+MODELS_DIR = ROOT / "models"
 MODEL_PLACEHOLDER = ""
-CUSTOM_MODEL_VALUE = "__custom__"
-CUSTOM_MODEL_LABEL = "自定义模型路径 / Hugging Face 模型名"
+LOCAL_MODEL_VALUE = "__local__"
+LOCAL_MODEL_LABEL = "本地模型目录"
+AVAILABLE_SUFFIX = "  ✅ 可用"
 MISSING_WHISPER_MODEL_MESSAGE = "未找到可用字幕，需要选择识别模型后再试。"
 
-MODEL_INFO = {
-    "tiny": {"desc": "速度最快，精度较低，适合快速预览或配置较低的设备。适合中文和英文音频。"},
-    "base": {"desc": "速度较快，精度一般，适合日常使用。适合中文和英文音频。"},
-    "small": {"desc": "速度与精度平衡，适合大多数场景。适合中文和英文音频。"},
-    "medium": {"desc": "精度较高，需要较多系统内存和显存。适合中文和英文音频。"},
-    "large-v1": {"desc": "大模型版本，精度较高，需要较多系统内存和显存。适合中文和英文音频。"},
-    "large-v2": {"desc": "大模型版本，精度较高，需要较多系统内存和显存。适合中文和英文音频。"},
-    "large-v3": {"desc": "最高精度，需要大量系统内存和显存，推荐有 GPU 的用户使用。适合中文和英文音频。"},
-    "large": {"desc": "large 是 large-v3 的别名。适合中文和英文音频。"},
-    "distil-large-v2": {"desc": "distil 模型。适合中文和英文音频。"},
-    "distil-large-v3": {"desc": "distil 模型。适合中文和英文音频。"},
-    "distil-large-v3.5": {"desc": "distil 模型。适合中文和英文音频。"},
-    "large-v3-turbo": {"desc": "turbo 模型。适合中文和英文音频。"},
-    "turbo": {"desc": "turbo 是 large-v3-turbo 的别名。适合中文和英文音频。"},
-    "tiny.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "base.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "small.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "medium.en": {"desc": "英文专用，不建议用于中文视频。"},
-    "distil-small.en": {"desc": "distil 模型。英文专用，不建议用于中文视频。"},
-    "distil-medium.en": {"desc": "distil 模型。英文专用，不建议用于中文视频。"},
+MODEL_RESOURCE_INFO = {
+    "tiny": {
+        "disk": "1GB 以内",
+        "memory": "4GB+",
+        "vram": "不强制，CPU 可用",
+        "scenario": "快速测试、很短视频、验证流程",
+        "note": "速度最快，资源占用最低，准确率较低。",
+    },
+    "tiny.en": {
+        "disk": "1GB 以内",
+        "memory": "4GB+",
+        "vram": "不强制，CPU 可用",
+        "scenario": "英文快速测试、很短视频、验证流程",
+        "note": "速度最快，资源占用最低，准确率较低。英文专用，不建议用于中文视频。",
+    },
+    "base": {
+        "disk": "1GB 以内",
+        "memory": "4GB+",
+        "vram": "不强制，CPU 可用",
+        "scenario": "短视频、快速预览、配置一般的电脑",
+        "note": "比 tiny 稍稳，但仍不适合高要求转写。",
+    },
+    "base.en": {
+        "disk": "1GB 以内",
+        "memory": "4GB+",
+        "vram": "不强制，CPU 可用",
+        "scenario": "英文短视频、快速预览、配置一般的电脑",
+        "note": "比 tiny 稍稳，但仍不适合高要求转写。英文专用，不建议用于中文视频。",
+    },
+    "small": {
+        "disk": "约 2GB",
+        "memory": "8GB+",
+        "vram": "2GB+ 更稳，CPU 也可用但会慢",
+        "scenario": "普通中文/英文视频、首次正式使用",
+        "note": "速度和识别质量比较均衡。",
+    },
+    "small.en": {
+        "disk": "约 2GB",
+        "memory": "8GB+",
+        "vram": "2GB+ 更稳，CPU 也可用但会慢",
+        "scenario": "普通英文视频、首次正式使用",
+        "note": "速度和识别质量比较均衡。英文专用，不建议用于中文视频。",
+    },
+    "medium": {
+        "disk": "约 4GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "较长视频、对识别质量要求更高的内容",
+        "note": "比 small 更慢，占用更高。",
+    },
+    "medium.en": {
+        "disk": "约 4GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "较长英文视频、对识别质量要求更高的内容",
+        "note": "比 small 更慢，占用更高。英文专用，不建议用于中文视频。",
+    },
+    "large-v1": {
+        "disk": "约 6GB+",
+        "memory": "16GB+",
+        "vram": "6GB-8GB+ 更稳",
+        "scenario": "长视频、口音较重、背景噪声较多、识别质量要求较高的内容",
+        "note": "下载和加载更慢，资源占用更高；低显存机器可考虑 small、medium、turbo 或 int8/CPU 模式。",
+    },
+    "large-v2": {
+        "disk": "约 6GB+",
+        "memory": "16GB+",
+        "vram": "6GB-8GB+ 更稳",
+        "scenario": "长视频、口音较重、背景噪声较多、识别质量要求较高的内容",
+        "note": "下载和加载更慢，资源占用更高；低显存机器可考虑 small、medium、turbo 或 int8/CPU 模式。",
+    },
+    "large-v3": {
+        "disk": "约 6GB+",
+        "memory": "16GB+",
+        "vram": "6GB-8GB+ 更稳",
+        "scenario": "长视频、口音较重、背景噪声较多、识别质量要求较高的内容",
+        "note": "下载和加载更慢，资源占用更高；低显存机器可考虑 small、medium、turbo 或 int8/CPU 模式。",
+    },
+    "large": {
+        "disk": "约 6GB+",
+        "memory": "16GB+",
+        "vram": "6GB-8GB+ 更稳",
+        "scenario": "长视频、口音较重、背景噪声较多、识别质量要求较高的内容",
+        "note": "large 是 large-v3 的别名；下载和加载较慢，资源占用较高。",
+    },
+    "large-v3-turbo": {
+        "disk": "约 3GB-5GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "在较高识别质量和速度之间取得平衡",
+        "note": "通常比 large-v3 更偏速度；实际效果仍取决于音频质量和语言场景。",
+    },
+    "turbo": {
+        "disk": "约 3GB-5GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "在较高识别质量和速度之间取得平衡",
+        "note": "turbo 是 large-v3-turbo 的别名；实际效果仍取决于音频质量和语言场景。",
+    },
+    "distil-small.en": {
+        "disk": "参考 small 级别",
+        "memory": "8GB+",
+        "vram": "2GB-4GB+ 更稳",
+        "scenario": "英文视频、希望降低资源占用或提高速度",
+        "note": "英文相关蒸馏模型。英文专用，不建议用于中文视频。",
+    },
+    "distil-medium.en": {
+        "disk": "参考 medium 级别",
+        "memory": "8GB+",
+        "vram": "2GB-4GB+ 更稳",
+        "scenario": "英文视频、希望降低资源占用或提高速度",
+        "note": "英文相关蒸馏模型。英文专用，不建议用于中文视频。",
+    },
+    "distil-large-v2": {
+        "disk": "约 3GB-6GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "减少 large 系列资源占用，同时保留较高识别能力",
+        "note": "蒸馏模型，效果取决于语言、音频质量和场景；中文视频建议优先考虑通用 small/medium/large/turbo。",
+    },
+    "distil-large-v3": {
+        "disk": "约 3GB-6GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "减少 large 系列资源占用，同时保留较高识别能力",
+        "note": "蒸馏模型，效果取决于语言、音频质量和场景；中文视频建议优先考虑通用 small/medium/large/turbo。",
+    },
+    "distil-large-v3.5": {
+        "disk": "约 3GB-6GB",
+        "memory": "8GB-16GB+",
+        "vram": "4GB+ 更稳",
+        "scenario": "减少 large 系列资源占用，同时保留较高识别能力",
+        "note": "蒸馏模型，效果取决于语言、音频质量和场景；中文视频建议优先考虑通用 small/medium/large/turbo。",
+    },
 }
 UNIVERSAL_MODELS = [
     "tiny",
@@ -57,7 +175,7 @@ MODEL_CHOICES = (
     [("请选择识别模型（不会自动下载）", MODEL_PLACEHOLDER)]
     + [(name, name) for name in UNIVERSAL_MODELS]
     + [(f"{name}（英文专用）", name) for name in ENGLISH_ONLY_MODELS]
-    + [(CUSTOM_MODEL_LABEL, CUSTOM_MODEL_VALUE)]
+    + [(LOCAL_MODEL_LABEL, LOCAL_MODEL_VALUE)]
 )
 MODELS = OFFICIAL_MODELS
 
@@ -65,7 +183,7 @@ MODELS = OFFICIAL_MODELS
 @dataclass(frozen=True)
 class ModelSelection:
     selected_value: str
-    custom_value: str = ""
+    local_value: str = ""
 
 
 def normalize_model_value(model: str | None) -> str:
@@ -80,21 +198,83 @@ def is_english_only_model(model: str | None) -> bool:
     return normalize_model_value(model) in ENGLISH_ONLY_MODELS
 
 
-def is_custom_model_source(model_source: str | None, model: str | None) -> bool:
+def is_local_model_source(model_source: str | None, model: str | None) -> bool:
     model_value = normalize_model_value(model)
-    return model_source == "custom" and bool(model_value)
+    return model_source in {"local", "custom"} and bool(model_value)
 
 
-def is_custom_model_choice(selected_value: str | None) -> bool:
-    return selected_value == CUSTOM_MODEL_VALUE
+def is_local_model_choice(selected_value: str | None) -> bool:
+    return selected_value == LOCAL_MODEL_VALUE
 
 
-def get_model_display_label(model: str) -> str:
+def get_official_model_dir(
+    model: str,
+    models_dir: str | Path | None = None,
+) -> Path:
+    if not is_preset_model(model):
+        raise ValueError(f"不是官方 preset 模型：{model}")
+    base_dir = Path(models_dir) if models_dir is not None else MODELS_DIR
+    return base_dir / normalize_model_value(model)
+
+
+def is_valid_model_dir(model_dir: str | Path | None) -> bool:
+    if not model_dir:
+        return False
+    directory = Path(model_dir)
+    if not directory.is_dir():
+        return False
+    required_files = (directory / "config.json", directory / "model.bin")
+    metadata_files = (
+        directory / "tokenizer.json",
+        directory / "preprocessor_config.json",
+    )
+    has_vocabulary = any(directory.glob("vocabulary.*"))
+    return all(path.is_file() for path in required_files) and (
+        any(path.is_file() for path in metadata_files) or has_vocabulary
+    )
+
+
+def scan_deployed_models(models_dir: str | Path | None = None) -> set[str]:
+    return {
+        model
+        for model in OFFICIAL_MODELS
+        if is_valid_model_dir(get_official_model_dir(model, models_dir))
+    }
+
+
+def get_model_display_label(
+    model: str,
+    deployed_models: set[str] | None = None,
+) -> str:
     if is_english_only_model(model):
-        return f"{model}（英文专用）"
-    if model == CUSTOM_MODEL_VALUE:
-        return CUSTOM_MODEL_LABEL
-    return model
+        label = f"{model}（英文专用）"
+    elif model == LOCAL_MODEL_VALUE:
+        return LOCAL_MODEL_LABEL
+    else:
+        label = model
+    if deployed_models and model in deployed_models:
+        return f"{label}{AVAILABLE_SUFFIX}"
+    return label
+
+
+def get_model_choices(deployed_models: set[str] | None = None) -> list[tuple[str, str]]:
+    return [
+        (get_model_display_label(value, deployed_models) if value else label, value)
+        for label, value in MODEL_CHOICES
+    ]
+
+
+def resolve_preset_model_for_extract(
+    model: str | None,
+    models_dir: str | Path | None = None,
+) -> str:
+    model_value = normalize_model_value(model)
+    if not is_preset_model(model_value):
+        return model_value
+    local_dir = get_official_model_dir(model_value, models_dir)
+    if is_valid_model_dir(local_dir):
+        return str(local_dir)
+    return model_value
 
 
 def get_model_description(
@@ -105,14 +285,22 @@ def get_model_description(
     model_value = normalize_model_value(model)
     if not model_value:
         return "当前模型说明：请选择模型；模型只会在需要语音识别时加载，可能在首次使用时下载。"
-    if model_value == CUSTOM_MODEL_VALUE or model_source == "custom":
+    if model_value == LOCAL_MODEL_VALUE or model_source in {"local", "custom"}:
         return (
-            "当前模型说明：请确认本地目录或 Hugging Face 模型名兼容 faster-whisper / CTranslate2；"
-            "模型只会在需要语音识别时加载，可能在首次使用时下载。"
+            "当前模型说明：\n"
+            "支持已经下载好的本地 CTranslate2 模型目录。请确认目录兼容 faster-whisper。\n"
+            "资源建议：推荐磁盘、内存和显存取决于具体模型\n"
+            "说明：软件不会自动下载本地模型目录对应的远程模型。"
         )
 
-    info = MODEL_INFO.get(model_value, {"desc": ""})
-    text = f"当前模型说明：{info['desc']} 模型只会在需要语音识别时加载，可能在首次使用时下载。"
+    info = MODEL_RESOURCE_INFO[model_value]
+    text = (
+        "当前模型说明：\n"
+        f"推荐磁盘：{info['disk']}　建议内存：{info['memory']}　建议显存：{info['vram']}\n"
+        f"适合场景：{info['scenario']}\n"
+        f"说明：{info['note']} 以上为经验参考，实际占用受 device、compute_type、音频长度、"
+        "显卡驱动、CUDA、beam_size 等影响；模型仅在需要语音识别时加载，首次使用时可能下载。"
+    )
     if cuda_ok and model_value in ("tiny", "base"):
         text += "\n检测到 GPU 可用，建议选择 medium 或 large-v3 以获得更好效果。"
     elif not cuda_ok and model_value in ("medium", "large-v3"):
@@ -123,24 +311,24 @@ def get_model_description(
 def resolve_model_from_settings(settings: dict) -> ModelSelection:
     model = normalize_model_value(settings.get("model"))
     model_source = settings.get("model_source")
-    if is_custom_model_source(model_source, model):
-        return ModelSelection(CUSTOM_MODEL_VALUE, model)
     if is_preset_model(model):
         return ModelSelection(model, "")
+    if is_local_model_source(model_source, model):
+        return ModelSelection(LOCAL_MODEL_VALUE, model)
     if model:
-        return ModelSelection(CUSTOM_MODEL_VALUE, model)
+        return ModelSelection(LOCAL_MODEL_VALUE, model)
     return ModelSelection(MODEL_PLACEHOLDER, "")
 
 
-def resolve_selected_model(selected_value: str | None, custom_value: str | None = None) -> str:
-    if selected_value == CUSTOM_MODEL_VALUE:
-        return normalize_model_value(custom_value)
+def resolve_selected_model(selected_value: str | None, local_value: str | None = None) -> str:
+    if selected_value == LOCAL_MODEL_VALUE:
+        return normalize_model_value(local_value)
     return normalize_model_value(selected_value)
 
 
-def get_model_settings_fields(selected_value: str | None, custom_value: str | None = None) -> dict[str, str]:
-    model = resolve_selected_model(selected_value, custom_value)
+def get_model_settings_fields(selected_value: str | None, local_value: str | None = None) -> dict[str, str]:
+    model = resolve_selected_model(selected_value, local_value)
     if not selected_value:
         return {}
-    model_source = "custom" if selected_value == CUSTOM_MODEL_VALUE else "preset"
+    model_source = "local" if selected_value == LOCAL_MODEL_VALUE else "preset"
     return {"model_source": model_source, "model": model}

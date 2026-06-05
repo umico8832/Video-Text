@@ -83,7 +83,7 @@ def build_settings_payload(values: dict) -> dict:
     settings.update(
         get_model_settings_fields(
             values.get("selected_model"),
-            values.get("custom_model"),
+            values.get("local_model"),
         )
     )
     return settings

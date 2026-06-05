@@ -1,45 +1,265 @@
-# Video-Text
+# Video-Text 视频字幕提取
 
-Windows desktop tool for extracting Chinese subtitles from online videos. It first tries to download existing subtitles with `yt-dlp`; if no suitable subtitles are available, it downloads audio and transcribes it with `faster-whisper`.
+这是一个 Windows 桌面工具，用于从 B 站、YouTube 等 `yt-dlp` 支持的视频页面提取中文字幕纯文本。
 
-## Features
+软件会优先下载视频已有的中文字幕；没有合适字幕时，再下载音频并使用 `faster-whisper` 进行语音识别。最终结果保存为 `.txt` 文件。
 
-- PySide6 desktop GUI
-- YouTube and Bilibili link processing through `yt-dlp`
-- Existing subtitle download with Whisper fallback
-- SRT, VTT, ASS/SSA, JSON and JSON3 parsing
-- Optional CUDA acceleration through `faster-whisper`
-- Lightweight launcher that prepares the Python environment
+## 软件是干什么的
 
-## Requirements
+- 输入视频链接，提取中文字幕纯文本。
+- 优先使用视频已有的人工字幕或自动字幕，速度更快。
+- 没有可用中文字幕时，可使用 Whisper 模型识别音频。
+- 支持 CPU，也可以在环境允许时使用 CUDA/GPU 加速。
+- 支持从浏览器读取 Cookie 或使用 `cookies.txt`。
+- 支持官方 preset 模型和已有的本地 CTranslate2 模型目录。
 
-- Windows 10/11
-- Python 3.12 recommended
-- FFmpeg, provided by `imageio-ffmpeg` or installed separately
+软件不会下载视频画面作为最终结果，也不提供批量处理、字幕翻译或历史记录功能。
 
-## Setup
+## 怎么启动
+
+### 推荐方式
+
+双击项目目录中的：
+
+```text
+启动软件.bat
+```
+
+也可以运行：
+
+```text
+视频字幕提取.exe
+```
+
+启动器会检查 Python 3.12，在项目目录创建 `.venv`，并根据 `requirements.txt` 安装基础依赖，然后打开软件界面。首次启动可能需要几分钟。
+
+如果启动失败，请查看项目目录中的 `launcher.log`。
+
+### PowerShell 启动
+
+已经准备好 `.venv` 时，可以执行：
+
+```powershell
+.\.venv\Scripts\python.exe launcher.py
+```
+
+开发环境也可以手动创建：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe video_text_gui.py
 ```
 
-## Run
+推荐使用 Windows 10/11 和 Python 3.12。
 
-```powershell
-.\.venv\Scripts\python launcher.py
+## 怎么准备环境
+
+软件启动后会自动检查：
+
+- FFmpeg：处理和转换音频。
+- yt-dlp：读取视频信息、字幕和音频。
+- faster-whisper：没有已有字幕时进行语音识别。
+- CUDA：可选的 GPU 加速环境。
+
+环境区域提供以下操作：
+
+- **检查环境**：只检查当前环境，不安装依赖。
+- **准备环境**：安装当前缺少的 FFmpeg、yt-dlp 或 faster-whisper 依赖。
+- **更新 yt-dlp**：网站规则变化、视频解析失败时可尝试更新。
+- **安装 GPU 加速组件**：安装可选的 CUDA 用户态组件。没有可用 NVIDIA GPU 时不需要操作。
+- **高级设置**：手动指定 FFmpeg、yt-dlp 路径以及 Cookie。
+
+环境显示“已就绪，GPU 不可用，将使用 CPU”并不代表故障，只是语音识别速度可能较慢。
+
+## 怎么选择模型
+
+“Whisper 模型”只在视频没有可直接下载的中文字幕时使用。
+
+常见选择建议：
+
+- `tiny` / `base`：下载小、速度快，准确率较低，适合测试。
+- `small`：速度和准确率较均衡，适合普通使用。
+- `medium`：识别效果通常更好，但更慢、占用更高。
+- `large-v3`：资源占用较高，适合更重视识别质量的场景。
+- `turbo`：在速度和识别质量之间取平衡。
+- 名称带 `.en` 的模型：英文专用，不建议用于中文视频。
+
+下拉框中的：
+
+```text
+small  ✅ 可用
 ```
 
-You can also run `启动软件.bat` on Windows.
+表示该模型已经部署在项目内。`✅ 可用` 只是界面标记，保存的设置仍然是模型真实名称 `small`。
 
-## Configuration
+选择“本地模型目录”时，需要指定一个已经存在、兼容 faster-whisper 的 CTranslate2 模型目录。软件只检查该目录，不会把它当作远程模型下载。
 
-Copy `settings.example.json` to `settings.json` if you want to prepare defaults manually. Local paths, cookies and generated outputs are intentionally ignored by git.
+可以不选择模型直接开始任务。如果视频有可用中文字幕，仍可正常提取；只有找不到字幕并需要语音识别时，才会提示选择模型。
 
-## Build Launcher
+## 部署模型是什么意思
+
+“部署模型”用于提前下载所选的官方 Whisper 模型。
+
+部署过程在后台执行，界面不会因为下载而冻结。下载完成后，模型下拉框会显示 `✅ 可用`。
+
+提前部署的好处：
+
+- 可以明确知道模型是否已准备好。
+- 后续识别优先使用项目内模型。
+- 方便整体迁移、备份或清理模型。
+
+未提前部署也可以开始提取。需要 Whisper 时，faster-whisper 仍会按原有方式处理模型。
+
+如果选择的是“本地模型目录”，点击“部署模型”只会检查目录及基本模型文件，不会下载或联网。
+
+## 模型下载到哪里
+
+官方模型固定下载到项目根目录的：
+
+```text
+models/<模型名>/
+```
+
+例如：
+
+```text
+models/tiny/
+models/small/
+models/large-v3/
+models/turbo/
+```
+
+软件只扫描这个 `models/` 目录来判断模型是否已部署，不扫描 Hugging Face 默认缓存。
+
+一个基础有效的模型目录通常包含：
+
+- `config.json`
+- `model.bin`
+- `tokenizer.json` 或 `preprocessor_config.json`
+- `vocabulary.json`、`vocabulary.txt` 等 `vocabulary.*` 文件之一
+
+模型文件较大，`models/` 已加入 `.gitignore`。不再需要某个模型时，可以关闭软件后删除对应模型目录。
+
+## 已有字幕和 Whisper 识别的优先级
+
+处理顺序如下：
+
+1. 使用 yt-dlp 获取视频信息。
+2. 查找可用的中文字幕。
+3. 优先选择人工字幕。
+4. 没有合适的人工字幕时，选择视频平台提供的自动中文字幕。
+5. 没有可直接下载的中文字幕时，才下载音频并使用 Whisper。
+
+选择了 Whisper 模型不会跳过已有字幕，也不会改变字幕选择优先级。
+
+如果官方模型已经部署并且目录有效，识别时优先使用 `models/<模型名>/`；如果没有部署，则继续传入官方模型名，由 faster-whisper 按原逻辑处理。
+
+## Cookie 怎么用
+
+大多数公开视频不需要 Cookie。以下情况可能需要：
+
+- B 站登录后才能访问的字幕或会员资源。
+- YouTube 年龄限制、登录限制或地区相关资源。
+- yt-dlp 提示需要登录、验证或 Cookie。
+
+在“环境配置”中点击“高级设置”，然后选择 Cookie 模式：
+
+- **不使用 Cookies**：默认选项，适合公开视频。
+- **从浏览器读取**：选择 Chrome、Edge 或 Firefox。使用前建议完全关闭对应浏览器，避免 Cookie 数据库被占用。
+- **使用 cookies.txt 文件**：选择导出的 Netscape 格式 `cookies.txt` 文件。
+
+Cookie 含有登录凭据，请不要上传、提交到 Git 或分享给他人。项目中的 `cookies.txt` 已被 `.gitignore` 忽略。
+
+如果浏览器读取失败，可以关闭浏览器后重试，或改用 `cookies.txt`。
+
+## 输出目录在哪里
+
+默认输出目录是项目根目录下的：
+
+```text
+outputs/
+```
+
+也可以在界面中点击“输出目录”右侧的“选择目录”进行修改。
+
+输出文件名大致为：
+
+```text
+视频标题.视频ID.txt
+```
+
+任务完成后，可以点击“打开输出目录”。生成的输出和下载过程中的临时音频不会提交到 Git。
+
+## 基本使用流程
+
+1. 启动软件，等待自动环境检查完成。
+2. 环境缺失时点击“准备环境”。
+3. 粘贴 B 站或 YouTube 视频链接。
+4. 按需选择 Whisper 模型。
+5. 可选：点击“部署模型”提前下载模型。
+6. 按需设置设备、Cookie 和输出目录。
+7. 点击“开始提取字幕”。
+8. 完成后点击“打开输出目录”查看 `.txt` 文件。
+
+## 常见问题
+
+### 启动时提示找不到 Python
+
+安装 Python 3.12，并在安装时勾选 `Add python.exe to PATH`。安装后重新运行 `启动软件.bat`。
+
+### 环境一直显示未就绪
+
+先点击“准备环境”，再点击“检查环境”。仍失败时展开“运行日志”，并检查网络、磁盘空间和 `launcher.log`。
+
+### GPU 不可用还能使用吗
+
+可以。软件会使用 CPU。较大的模型在 CPU 上可能很慢，建议先使用 `small`、`base` 或 `tiny`。
+
+### 点击部署模型后下载很慢或失败
+
+模型下载需要网络连接，并且大模型可能占用数 GB 空间。可以先用 `tiny` 测试。失败后查看运行日志中的具体错误，并确认 `models/` 所在磁盘空间充足。
+
+### 模型目录存在，但没有显示“✅ 可用”
+
+空目录或文件不完整不会被视为已部署。检查目录是否为 `models/<模型名>/`，并确认其中包含 `config.json`、`model.bin` 以及 tokenizer、preprocessor 或 vocabulary 相关文件。
+
+### 已经部署模型，为什么还显示正在下载/加载
+
+运行日志中的“下载/加载 Whisper 模型”是统一阶段提示。有效的项目内模型会优先从 `models/<模型名>/` 加载，不代表一定正在重新下载。
+
+### 没选模型能否提取字幕
+
+可以。软件会先尝试下载已有中文字幕。只有没有可用字幕、必须使用 Whisper 时，才需要模型。
+
+### 提示“未找到可用字幕，需要选择识别模型”
+
+视频没有可直接下载的中文字幕，并且当前没有选择 Whisper 模型。选择一个官方模型或本地模型目录后重试。
+
+### 本地模型目录显示不存在或缺少文件
+
+确认选择的是模型目录本身，而不是它的上级目录。本地目录必须已经存在并包含兼容 faster-whisper 的 CTranslate2 模型文件；软件不会替本地目录下载内容。
+
+### 视频解析失败、字幕突然无法下载
+
+网站规则可能已经变化。点击“更新 yt-dlp”后重试。受限视频还需要正确的 Cookie。
+
+### 从浏览器读取 Cookie 失败
+
+完全退出对应浏览器后重试。如果仍然失败，导出 Netscape 格式的 `cookies.txt` 并选择“使用 cookies.txt 文件”。
+
+### 输出文件在哪里
+
+默认在 `outputs/`。如果修改过输出目录，以界面中的路径为准。任务成功后可以直接点击“打开输出目录”。
+
+## 配置与构建
+
+运行设置保存在项目目录的 `settings.json`，该文件不会提交到 Git。需要手动准备默认配置时，可以参考 `settings.example.json`。
+
+构建 Windows 启动器：
 
 ```powershell
 .\build_launcher.ps1
 ```
 
-The packaged executable is generated locally and is not committed to the repository.
+本地构建产物不会提交到仓库。

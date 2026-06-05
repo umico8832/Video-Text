@@ -34,11 +34,15 @@ from env_checker import (
 )
 from model_config import (
     MISSING_WHISPER_MODEL_MESSAGE,
-    MODEL_CHOICES,
+    get_model_choices,
     get_model_description,
-    is_custom_model_choice,
+    is_local_model_choice,
+    is_preset_model,
+    is_valid_model_dir,
     resolve_model_from_settings,
+    resolve_preset_model_for_extract,
     resolve_selected_model,
+    scan_deployed_models,
 )
 from settings_manager import (
     DEFAULT_OUTPUT_DIR,
@@ -47,7 +51,7 @@ from settings_manager import (
     save_settings as write_settings,
     selected_output_dir as get_selected_output_dir,
 )
-from workers import EnvWorker, ExtractWorker
+from workers import EnvWorker, ExtractWorker, ModelDeployWorker
 
 
 ROOT = Path(__file__).resolve().parent
@@ -101,6 +105,7 @@ class MainWindow(QMainWindow):
         self.output_path = ""
         self.loading_settings = False
         self.env_task_autosave = True
+        self.deployed_models = scan_deployed_models()
         self.settings_save_timer = QTimer(self)
         self.settings_save_timer.setSingleShot(True)
         self.settings_save_timer.setInterval(1000)
@@ -121,13 +126,13 @@ class MainWindow(QMainWindow):
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("粘贴 B 站或 YouTube 视频链接")
         self.model_combo = QComboBox()
-        for label, value in MODEL_CHOICES:
+        for label, value in get_model_choices(self.deployed_models):
             self.model_combo.addItem(label, value)
         self.model_combo.setCurrentIndex(0)
-        self.custom_model_input = QLineEdit()
-        self.custom_model_input.setPlaceholderText("例如 D:/models/faster-whisper-large-v3 或 username/model-name")
-        self.custom_model_pick_btn = QPushButton("选择目录")
-        self.custom_model_pick_btn.clicked.connect(self.pick_custom_model_dir)
+        self.local_model_input = QLineEdit()
+        self.local_model_input.setPlaceholderText("例如 D:/models/faster-whisper-large-v3")
+        self.local_model_pick_btn = QPushButton("选择目录")
+        self.local_model_pick_btn.clicked.connect(self.pick_local_model_dir)
         self.model_info_label = QLabel("")
         self.model_info_label.setWordWrap(True)
         self.model_info_label.setStyleSheet("color: #555; font-size: 12px;")
@@ -143,10 +148,10 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.model_combo, 1, 1)
         input_layout.addWidget(QLabel("设备"), 1, 2)
         input_layout.addWidget(self.device_combo, 1, 3)
-        self.custom_model_label = QLabel("自定义模型")
-        input_layout.addWidget(self.custom_model_label, 2, 0)
-        input_layout.addWidget(self.custom_model_input, 2, 1, 1, 4)
-        input_layout.addWidget(self.custom_model_pick_btn, 2, 5)
+        self.local_model_label = QLabel("本地模型目录")
+        input_layout.addWidget(self.local_model_label, 2, 0)
+        input_layout.addWidget(self.local_model_input, 2, 1, 1, 4)
+        input_layout.addWidget(self.local_model_pick_btn, 2, 5)
         input_layout.addWidget(QLabel("输出目录"), 3, 0)
         input_layout.addWidget(self.output_dir_input, 3, 1, 1, 4)
         input_layout.addWidget(self.output_dir_pick_btn, 3, 5)
@@ -156,6 +161,8 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(strategy_label, 4, 0, 1, 6)
         input_layout.addWidget(self.model_info_label, 5, 0, 1, 6)
         self.start_button = QPushButton("开始提取字幕")
+        self.deploy_model_button = QPushButton("部署模型")
+        self.deploy_model_button.clicked.connect(self.deploy_model)
         self.start_button.setMinimumHeight(42)
         self.start_button.setDefault(True)
         self.start_button.setStyleSheet("font-weight: 600;")
@@ -164,6 +171,7 @@ class MainWindow(QMainWindow):
         self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         main_action_layout = QHBoxLayout()
         main_action_layout.addWidget(self.start_button)
+        main_action_layout.addWidget(self.deploy_model_button)
         main_action_layout.addWidget(self.result_label, 1)
         input_layout.addLayout(main_action_layout, 6, 0, 1, 6)
         layout.addWidget(input_box)
@@ -276,13 +284,14 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self.start_extract)
         self.open_button.clicked.connect(self.open_output_dir)
         self.model_combo.currentIndexChanged.connect(self.update_model_info)
+        self.local_model_input.textChanged.connect(self.update_model_info)
         for widget in [
             self.ffmpeg_input,
             self.ytdlp_input,
             self.cookies_input,
             self.url_input,
             self.output_dir_input,
-            self.custom_model_input,
+            self.local_model_input,
         ]:
             widget.textChanged.connect(self.schedule_save_settings)
         self.model_combo.currentIndexChanged.connect(self.schedule_save_settings)
@@ -306,11 +315,11 @@ class MainWindow(QMainWindow):
         if path:
             self.output_dir_input.setText(path)
 
-    def pick_custom_model_dir(self) -> None:
-        current = self.custom_model_input.text().strip() or str(ROOT)
+    def pick_local_model_dir(self) -> None:
+        current = self.local_model_input.text().strip() or str(ROOT)
         path = QFileDialog.getExistingDirectory(self, "选择模型目录", current)
         if path:
-            self.custom_model_input.setText(path)
+            self.local_model_input.setText(path)
 
     def selected_output_dir(self) -> str:
         return get_selected_output_dir(self.output_dir_input.text())
@@ -330,11 +339,39 @@ class MainWindow(QMainWindow):
 
     def update_model_info(self) -> None:
         model_name = self.model_combo.currentData()
-        is_custom = is_custom_model_choice(model_name)
-        self.custom_model_label.setVisible(is_custom)
-        self.custom_model_input.setVisible(is_custom)
-        self.custom_model_pick_btn.setVisible(is_custom)
+        is_local = is_local_model_choice(model_name)
+        self.local_model_label.setVisible(is_local)
+        self.local_model_input.setVisible(is_local)
+        self.local_model_pick_btn.setVisible(is_local)
         self.model_info_label.setText(get_model_description(model_name, cuda_ok=self.cuda_ok))
+        if is_local:
+            local_dir = self.local_model_input.text().strip()
+            if not local_dir:
+                self.set_status("未检查")
+            elif is_valid_model_dir(local_dir):
+                self.set_status("本地模型目录可用")
+            elif Path(local_dir).is_dir():
+                self.set_status("本地模型目录缺少基本模型文件")
+            else:
+                self.set_status("本地模型目录不存在")
+        elif is_preset_model(model_name):
+            self.set_status("已部署" if model_name in self.deployed_models else "未部署")
+
+    def refresh_model_choices(self) -> None:
+        selected_value = self.model_combo.currentData()
+        local_value = self.local_model_input.text()
+        self.deployed_models = scan_deployed_models()
+        self.loading_settings = True
+        try:
+            self.model_combo.clear()
+            for label, value in get_model_choices(self.deployed_models):
+                self.model_combo.addItem(label, value)
+            index = self.model_combo.findData(selected_value)
+            self.model_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.local_model_input.setText(local_value)
+        finally:
+            self.loading_settings = False
+        self.update_model_info()
 
     def update_cookie_mode_ui(self) -> None:
         mode = self.cookie_mode_combo.currentData()
@@ -357,7 +394,7 @@ class MainWindow(QMainWindow):
             model_selection = resolve_model_from_settings(self.settings)
             index = self.model_combo.findData(model_selection.selected_value)
             self.model_combo.setCurrentIndex(index if index >= 0 else 0)
-            self.custom_model_input.setText(model_selection.custom_value)
+            self.local_model_input.setText(model_selection.local_value)
             self.device_combo.setCurrentText(self.settings.get("device", "auto"))
             cookie_mode = self.settings.get("cookie_mode", "none")
             cookie_mode_names = [m["name"] for m in COOKIE_MODES]
@@ -373,7 +410,7 @@ class MainWindow(QMainWindow):
         self.update_model_info()
 
     def selected_model_value(self) -> str:
-        return resolve_selected_model(self.model_combo.currentData(), self.custom_model_input.text())
+        return resolve_selected_model(self.model_combo.currentData(), self.local_model_input.text())
 
     def schedule_save_settings(self) -> None:
         if self.loading_settings:
@@ -394,7 +431,7 @@ class MainWindow(QMainWindow):
             "cookie_mode": self.cookie_mode_combo.currentData(),
             "cookies_browser": COOKIE_BROWSERS[self.cookie_browser_combo.currentIndex()],
             "selected_model": self.model_combo.currentData(),
-            "custom_model": self.custom_model_input.text(),
+            "local_model": self.local_model_input.text(),
         })
         write_settings(settings)
 
@@ -445,6 +482,7 @@ class MainWindow(QMainWindow):
         self.prepare_button.setEnabled(not busy)
         self.update_ytdlp_button.setEnabled(not busy)
         self.gpu_button.setEnabled(not busy)
+        self.deploy_model_button.setEnabled(not busy)
         self.start_button.setEnabled(not busy and self.env_ready)
         self.progress.setVisible(busy)
 
@@ -522,9 +560,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "缺少链接", "请先输入视频链接。")
             return
         model = self.selected_model_value()
-        if is_custom_model_choice(self.model_combo.currentData()) and not model:
-            QMessageBox.warning(self, "缺少模型", "请填写本地模型路径或 Hugging Face 模型名。")
+        if is_local_model_choice(self.model_combo.currentData()) and not model:
+            QMessageBox.warning(self, "缺少模型", "请选择本地模型目录。")
             return
+        if is_preset_model(model):
+            model = resolve_preset_model_for_extract(model)
         self.save_settings_now()
         self.set_status("正在启动字幕提取")
         self.output_path = ""
@@ -566,6 +606,43 @@ class MainWindow(QMainWindow):
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.finished.connect(self.clear_worker)
         self.thread.start()
+
+    def deploy_model(self) -> None:
+        selected_value = self.model_combo.currentData()
+        model = self.selected_model_value()
+        if not selected_value or not model:
+            QMessageBox.warning(self, "缺少模型", "请先选择识别模型。")
+            return
+
+        model_source = "local" if is_local_model_choice(selected_value) else "preset"
+        self.save_settings_now()
+        self.append_log_separator()
+        self.append_log(
+            f"开始部署官方模型：{model}"
+            if model_source == "preset"
+            else f"开始检查本地模型目录：{model}"
+        )
+        self.set_status("正在部署模型" if model_source == "preset" else "正在检查本地模型目录")
+        self.refresh_buttons(True)
+        self.thread = QThread()
+        self.worker = ModelDeployWorker(model_source, model)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.done.connect(self.model_deploy_done)
+        self.worker.done.connect(self.thread.quit)
+        self.worker.done.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self.clear_worker)
+        self.thread.start()
+
+    def model_deploy_done(self, ok: bool, message: str) -> None:
+        if ok and is_preset_model(self.model_combo.currentData()):
+            self.refresh_model_choices()
+        self.set_status(message)
+        self.append_log(message)
+        if not ok and message.startswith("模型部署失败"):
+            QMessageBox.critical(self, "模型部署失败", message)
+        self.refresh_buttons(False)
 
     def extract_done(self, ok: bool, message: str) -> None:
         if ok:

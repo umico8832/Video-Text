@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QObject, Signal
 
 import extract_subtitle
+from model_config import (
+    get_official_model_dir,
+    is_preset_model,
+    is_valid_model_dir,
+)
 from env_checker import (
     GPU_PACKAGES,
     REQUIRED_ENV_KEYS,
@@ -111,3 +118,38 @@ class ExtractWorker(QObject):
         except Exception as exc:
             self.log.emit(f"任务失败：{exc}")
             self.done.emit(False, str(exc))
+
+
+class ModelDeployWorker(QObject):
+    done = Signal(bool, str)
+
+    def __init__(self, model_source: str, model: str):
+        super().__init__()
+        self.model_source = model_source
+        self.model = model.strip()
+
+    def run(self) -> None:
+        try:
+            if self.model_source == "local":
+                directory = Path(self.model)
+                if not directory.is_dir():
+                    self.done.emit(False, "本地模型目录不存在")
+                elif not is_valid_model_dir(directory):
+                    self.done.emit(False, "本地模型目录缺少基本模型文件")
+                else:
+                    self.done.emit(True, "本地模型目录可用")
+                return
+
+            if self.model_source != "preset" or not is_preset_model(self.model):
+                raise ValueError("请先选择识别模型")
+
+            from faster_whisper.utils import download_model
+
+            model_dir = get_official_model_dir(self.model)
+            model_dir.mkdir(parents=True, exist_ok=True)
+            download_model(self.model, output_dir=str(model_dir))
+            if not is_valid_model_dir(model_dir):
+                raise RuntimeError("下载完成，但模型目录缺少基本模型文件")
+            self.done.emit(True, "已部署")
+        except Exception as exc:
+            self.done.emit(False, f"模型部署失败：{exc}")
