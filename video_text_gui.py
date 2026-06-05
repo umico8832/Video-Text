@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import importlib.metadata
-import os
-import platform
 import re
-import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QThread, Qt, QTimer
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,7 +28,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QUrl
 
-import extract_subtitle
+from env_checker import (
+    build_env_summary,
+    format_env_report,
+)
 from model_config import (
     MISSING_WHISPER_MODEL_MESSAGE,
     MODEL_CHOICES,
@@ -49,12 +47,10 @@ from settings_manager import (
     save_settings as write_settings,
     selected_output_dir as get_selected_output_dir,
 )
+from workers import EnvWorker, ExtractWorker
 
 
 ROOT = Path(__file__).resolve().parent
-REQUIRED_ENV_KEYS = ("ffmpeg", "yt-dlp", "whisper")
-GPU_PACKAGES = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
-IS_WINDOWS = platform.system() == "Windows"
 
 COOKIE_MODES = [
     {"name": "none", "label": "不使用 Cookies"},
@@ -68,77 +64,11 @@ def timestamp() -> str:
     return time.strftime("%H:%M:%S")
 
 
-def path_exists(value: str) -> bool:
-    return bool(value.strip()) and Path(value.strip()).exists()
-
-
-def local_bin(name: str) -> Path:
-    scripts_dir = ROOT / ".venv" / ("Scripts" if IS_WINDOWS else "bin")
-    executable = f"{name}.exe" if IS_WINDOWS and not name.endswith(".exe") else name
-    return scripts_dir / executable
-
-
-def install_command(*packages: str, upgrade: bool = False) -> list[str]:
-    uv = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
-    if Path(uv).exists() or shutil.which("uv"):
-        cmd = [uv, "pip", "install"]
-    else:
-        cmd = [sys.executable, "-m", "pip", "install"]
-    if upgrade:
-        cmd.append("--upgrade")
-    cmd.extend(packages)
-    return cmd
-
-
-def package_version(name: str) -> str:
-    try:
-        return importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return ""
-
-
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def clean_log_text(message: str) -> str:
     return ANSI_RE.sub("", message)
-
-
-def run_command_with_log(cmd: list[str], log: Signal, cwd: Path = ROOT) -> None:
-    log.emit(f"执行命令：{' '.join(cmd)}")
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(cwd),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    for line in process.stdout:
-        line = line.strip()
-        if line:
-            log.emit(line)
-    if process.wait() != 0:
-        raise RuntimeError("命令执行失败")
-
-
-def ensure_ffmpeg_link() -> None:
-    target = local_bin("ffmpeg")
-    if target.exists():
-        return
-    try:
-        import imageio_ffmpeg
-
-        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        ffmpeg = extract_subtitle.resolve_ffmpeg_path()
-    if ffmpeg and Path(ffmpeg).exists() and Path(ffmpeg) != target:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if IS_WINDOWS:
-            shutil.copy2(ffmpeg, target)
-        else:
-            target.symlink_to(ffmpeg)
 
 
 def configure_app_font(app: QApplication) -> None:
@@ -154,193 +84,6 @@ def configure_app_font(app: QApplication) -> None:
         if family in families:
             app.setFont(QFont(family, 10))
             return
-
-
-class EnvWorker(QObject):
-    log = Signal(str)
-    done = Signal(bool, dict)
-
-    def __init__(self, ffmpeg_path: str, yt_dlp_path: str, action: str):
-        super().__init__()
-        self.ffmpeg_path = ffmpeg_path.strip()
-        self.yt_dlp_path = yt_dlp_path.strip()
-        self.action = action
-
-    def run(self) -> None:
-        try:
-            self.log.emit("环境检查线程已启动")
-            if self.action == "update_ytdlp":
-                self.update_ytdlp()
-            elif self.action == "install_gpu":
-                self.install_gpu()
-            elif self.action == "prepare":
-                self.update_ytdlp()
-            report = self.check()
-            missing = [
-                name for name in REQUIRED_ENV_KEYS
-                if not report.get(name, {}).get("ok")
-            ]
-            if missing and self.action == "prepare":
-                self.log.emit(f"检测到缺失依赖：{', '.join(missing)}，开始准备当前项目环境")
-                self.install(missing)
-                report = self.check()
-            ok = all(report.get(name, {}).get("ok") for name in REQUIRED_ENV_KEYS)
-            self.done.emit(ok, report)
-        except Exception as exc:
-            self.log.emit(f"环境准备失败：{exc}")
-            self.done.emit(False, {})
-
-    def check(self) -> dict:
-        self.log.emit("检查 FFmpeg")
-        user_ffmpeg = self.ffmpeg_path if path_exists(self.ffmpeg_path) else None
-        bundled_ffmpeg = str(local_bin("ffmpeg")) if local_bin("ffmpeg").exists() else None
-        system_ffmpeg = shutil.which("ffmpeg")
-        ffmpeg = user_ffmpeg or bundled_ffmpeg or system_ffmpeg
-        ffmpeg_source = "用户指定" if user_ffmpeg else "软件目录" if bundled_ffmpeg else "系统 PATH" if system_ffmpeg else "缺失"
-        if ffmpeg:
-            self.log.emit(f"FFmpeg 已找到：{ffmpeg_source} / {ffmpeg}")
-        else:
-            self.log.emit("FFmpeg 缺失：未在用户指定路径、软件目录或系统 PATH 中找到")
-
-        self.log.emit("检查 yt-dlp")
-        user_ytdlp = self.yt_dlp_path if path_exists(self.yt_dlp_path) else None
-        bundled_ytdlp = str(local_bin("yt-dlp")) if local_bin("yt-dlp").exists() else None
-        system_ytdlp = shutil.which("yt-dlp")
-        ytdlp = user_ytdlp or bundled_ytdlp or system_ytdlp
-        ytdlp_source = "用户指定" if user_ytdlp else "软件环境" if bundled_ytdlp else "系统 PATH" if system_ytdlp else "缺失"
-        ytdlp_version = package_version("yt-dlp")
-        if ytdlp:
-            version_detail = f" / 版本 {ytdlp_version}" if ytdlp_version else ""
-            self.log.emit(f"yt-dlp 已找到：{ytdlp_source} / {ytdlp}{version_detail}")
-        else:
-            self.log.emit("yt-dlp 缺失：未在用户指定路径、软件环境或系统 PATH 中找到")
-
-        self.log.emit("检查 Whisper 依赖")
-        whisper_version = package_version("faster-whisper")
-        whisper_ok = bool(whisper_version)
-        whisper_error = ""
-        try:
-            from faster_whisper import WhisperModel  # noqa: F401
-        except Exception as exc:
-            whisper_ok = False
-            whisper_error = str(exc)
-        if whisper_ok:
-            version_detail = f" 版本 {whisper_version}" if whisper_version else ""
-            self.log.emit(f"Whisper 依赖已就绪：faster-whisper{version_detail}")
-        else:
-            detail = f"；原因：{whisper_error}" if whisper_error else ""
-            self.log.emit(f"Whisper 依赖缺失：无法导入 faster-whisper{detail}")
-
-        self.log.emit("检查 CUDA/GPU 加速状态")
-        cuda_ok = False
-        cuda_detail = "未检测到可用 CUDA，将使用 CPU 或按需安装 GPU 加速组件"
-        try:
-            import ctranslate2
-
-            compute_types = ctranslate2.get_supported_compute_types("cuda")
-            cuda_ok = bool(compute_types)
-            if cuda_ok:
-                cuda_detail = "可用：" + ", ".join(sorted(compute_types))
-        except Exception as exc:
-            cuda_detail = f"不可用：{exc}"
-
-        gpu_packages_ok = all(package_version(name) for name in GPU_PACKAGES)
-        if cuda_ok and not gpu_packages_ok:
-            cuda_detail = f"{cuda_detail}；尚未安装 Python CUDA 用户态库，任务中会在失败时回退 CPU"
-        if cuda_ok:
-            self.log.emit(f"CUDA 可用：{cuda_detail}")
-        else:
-            self.log.emit(f"CUDA 不可用：将使用 CPU；原因：{cuda_detail}")
-
-        return {
-            "ffmpeg": {"ok": bool(ffmpeg), "path": ffmpeg or "", "source": ffmpeg_source},
-            "yt-dlp": {
-                "ok": bool(ytdlp),
-                "path": ytdlp or "",
-                "source": ytdlp_source,
-                "version": ytdlp_version,
-            },
-            "whisper": {
-                "ok": whisper_ok,
-                "path": "faster-whisper",
-                "version": whisper_version,
-            },
-            "cuda": {
-                "ok": cuda_ok,
-                "path": "可选 GPU 加速",
-                "source": "已安装 GPU 组件" if gpu_packages_ok else "未安装 GPU 组件",
-                "detail": cuda_detail,
-                "optional": True,
-            },
-        }
-
-    def install(self, missing: list[str]) -> None:
-        packages: list[str] = []
-        if "yt-dlp" in missing:
-            packages.append("yt-dlp")
-        if "ffmpeg" in missing:
-            packages.append("imageio-ffmpeg")
-        if "whisper" in missing:
-            packages.append("faster-whisper")
-        if not packages:
-            return
-        run_command_with_log(install_command(*packages), self.log)
-        if "ffmpeg" in missing:
-            ensure_ffmpeg_link()
-
-    def update_ytdlp(self) -> None:
-        self.log.emit("开始更新 yt-dlp")
-        run_command_with_log(install_command("yt-dlp", upgrade=True), self.log)
-
-    def install_gpu(self) -> None:
-        self.log.emit("开始安装 GPU 加速组件")
-        run_command_with_log(install_command(*GPU_PACKAGES), self.log)
-
-
-class ExtractWorker(QObject):
-    log = Signal(str)
-    done = Signal(bool, str)
-
-    def __init__(
-        self,
-        url: str,
-        model: str | None,
-        device: str,
-        cookies: str,
-        ffmpeg: str,
-        yt_dlp: str,
-        cookies_from_browser: str | None = None,
-        output_dir: str = "",
-    ):
-        super().__init__()
-        self.url = url
-        self.model = model
-        self.device = device
-        self.cookies = cookies.strip() or None
-        self.ffmpeg = ffmpeg.strip() or None
-        self.yt_dlp = yt_dlp.strip() or None
-        self.cookies_from_browser = cookies_from_browser
-        self.output_dir = output_dir.strip() or None
-
-    def run(self) -> None:
-        try:
-            self.log.emit("字幕获取线程已启动")
-            result = extract_subtitle.extract(
-                url=self.url,
-                model=self.model,
-                device=self.device,
-                compute_type="auto",
-                cookies=self.cookies,
-                ffmpeg_path=self.ffmpeg,
-                yt_dlp_path=self.yt_dlp,
-                log_callback=self.log.emit,
-                cookies_from_browser=self.cookies_from_browser,
-                output_dir=self.output_dir,
-            )
-            self.done.emit(True, str(result))
-        except Exception as exc:
-            self.log.emit(f"任务失败：{exc}")
-            self.done.emit(False, str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -740,31 +483,9 @@ class MainWindow(QMainWindow):
     def env_done(self, ok: bool, report: dict) -> None:
         self.env_ready = ok
         if report:
-            parts = []
-            for name in ("ffmpeg", "yt-dlp", "whisper", "cuda"):
-                data = report.get(name)
-                if not data:
-                    continue
-                if data.get("optional"):
-                    mark = "可选可用" if data["ok"] else "可选未启用"
-                else:
-                    mark = "可用" if data["ok"] else "缺失"
-                details = [f"{name}: {mark}"]
-                if data.get("version"):
-                    details.append(f"版本 {data['version']}")
-                if data.get("source"):
-                    details.append(data["source"])
-                if data.get("path"):
-                    details.append(data["path"])
-                if data.get("detail"):
-                    details.append(data["detail"])
-                parts.append(" / ".join(details))
-            summary = "已就绪" if ok else "需要准备环境"
-            cuda_data = report.get("cuda") or {}
-            if ok and cuda_data and not cuda_data.get("ok"):
-                summary = "已就绪，GPU 不可用，将使用 CPU"
+            summary = build_env_summary(report, ok)
             self.set_env_summary(summary)
-            details_text = "\n".join(parts)
+            details_text = format_env_report(report)
             self.env_status.setToolTip(details_text)
             self.env_detail_label.setText(details_text)
             self.loading_settings = not self.env_task_autosave
