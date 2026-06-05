@@ -1,0 +1,12 @@
+{
+  "url": "",
+  "ffmpeg": "",
+  "yt_dlp": "",
+  "cookies": "",
+  "output_dir": "outputs",
+  "model_source": "preset",
+  "model": "large-v3",
+  "device": "auto",
+  "cookie_mode": "none",
+  "cookies_browser": "chrome"
+}

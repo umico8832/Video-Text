@@ -1,0 +1,2 @@
+@echo off
+"c:\aWorkPlace\CodingPlace\Video-Text\.venv\Scripts\python.exe" "c:\aWorkPlace\CodingPlace\Video-Text\video_text_gui.py" 1>"c:\aWorkPlace\CodingPlace\Video-Text\launch_out.log" 2>"c:\aWorkPlace\CodingPlace\Video-Text\launch_err.log"
