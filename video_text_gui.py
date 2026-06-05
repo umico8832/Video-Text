@@ -101,6 +101,10 @@ class MainWindow(QMainWindow):
         self.output_path = ""
         self.loading_settings = False
         self.env_task_autosave = True
+        self.settings_save_timer = QTimer(self)
+        self.settings_save_timer.setSingleShot(True)
+        self.settings_save_timer.setInterval(1000)
+        self.settings_save_timer.timeout.connect(self.save_settings_now)
         self.build_ui()
         self.load_settings()
         self.refresh_buttons()
@@ -280,11 +284,11 @@ class MainWindow(QMainWindow):
             self.output_dir_input,
             self.custom_model_input,
         ]:
-            widget.textChanged.connect(self.save_settings)
-        self.model_combo.currentIndexChanged.connect(self.save_settings)
-        self.device_combo.currentTextChanged.connect(self.save_settings)
-        self.cookie_mode_combo.currentIndexChanged.connect(self.save_settings)
-        self.cookie_browser_combo.currentIndexChanged.connect(self.save_settings)
+            widget.textChanged.connect(self.schedule_save_settings)
+        self.model_combo.currentIndexChanged.connect(self.schedule_save_settings)
+        self.device_combo.currentTextChanged.connect(self.schedule_save_settings)
+        self.cookie_mode_combo.currentIndexChanged.connect(self.schedule_save_settings)
+        self.cookie_browser_combo.currentIndexChanged.connect(self.schedule_save_settings)
 
     def pick_button(self, target: QLineEdit) -> QPushButton:
         button = QPushButton("选择")
@@ -371,9 +375,15 @@ class MainWindow(QMainWindow):
     def selected_model_value(self) -> str:
         return resolve_selected_model(self.model_combo.currentData(), self.custom_model_input.text())
 
-    def save_settings(self) -> None:
+    def schedule_save_settings(self) -> None:
         if self.loading_settings:
             return
+        self.settings_save_timer.start()
+
+    def save_settings_now(self) -> None:
+        if self.loading_settings:
+            return
+        self.settings_save_timer.stop()
         settings = build_settings_payload({
             "url": self.url_input.text().strip(),
             "ffmpeg": self.ffmpeg_input.text().strip(),
@@ -441,7 +451,7 @@ class MainWindow(QMainWindow):
     def run_env_task(self, action: str, autosave: bool = True) -> None:
         self.env_task_autosave = autosave
         if autosave:
-            self.save_settings()
+            self.save_settings_now()
         action_labels = {
             "check": "开始环境检查",
             "prepare": "开始准备环境",
@@ -515,7 +525,7 @@ class MainWindow(QMainWindow):
         if is_custom_model_choice(self.model_combo.currentData()) and not model:
             QMessageBox.warning(self, "缺少模型", "请填写本地模型路径或 Hugging Face 模型名。")
             return
-        self.save_settings()
+        self.save_settings_now()
         self.set_status("正在启动字幕提取")
         self.output_path = ""
         self.open_button.setEnabled(False)
@@ -575,6 +585,11 @@ class MainWindow(QMainWindow):
         path = Path(self.output_path)
         if path.exists():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+    def closeEvent(self, event) -> None:
+        if self.settings_save_timer.isActive():
+            self.save_settings_now()
+        super().closeEvent(event)
 
 
 def main() -> int:
