@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QScrollArea,
     QSizePolicy,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -82,7 +83,9 @@ def configure_app_font(app: QApplication) -> None:
     preferred = [
         "Noto Sans CJK SC",
         "Noto Sans CJK",
+        "Microsoft YaHei UI",
         "Microsoft YaHei",
+        "SimHei",
         "WenQuanYi Micro Hei",
         "Source Han Sans SC",
     ]
@@ -106,7 +109,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("视频字幕提取")
-        self.resize(980, 720)
+        self.resize(1180, 820)
         self.settings = read_settings()
         self.env_ready = False
         self.cuda_ok = False
@@ -136,39 +139,54 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(0)
         root.setStyleSheet("""
             QWidget {
-                background: #f6f7f9;
-                color: #1f2933;
+                background: #f6f8fb;
+                color: #17202c;
             }
             QLabel {
                 background: transparent;
             }
             QLineEdit, QComboBox, QPlainTextEdit {
+                min-height: 24px;
                 background: #ffffff;
-                border: 1px solid #d7dce2;
-                border-radius: 8px;
-                padding: 8px 10px;
+                border: 1px solid #d8dee8;
+                border-radius: 7px;
+                padding: 8px 11px;
                 selection-background-color: #2563eb;
             }
             QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {
                 border-color: #2563eb;
             }
             QPushButton {
+                min-height: 24px;
                 background: #ffffff;
-                border: 1px solid #cfd6df;
-                border-radius: 8px;
-                padding: 8px 12px;
+                border: 1px solid #cbd5e1;
+                border-radius: 7px;
+                padding: 8px 14px;
+                font-weight: 600;
             }
             QPushButton:hover {
-                background: #f2f5f9;
-                border-color: #aeb8c5;
+                background: #f3f6fa;
+                border-color: #a9b6c7;
             }
             QPushButton:pressed {
-                background: #e7ecf3;
+                background: #e8eef6;
             }
             QPushButton:disabled {
-                color: #98a2ad;
-                background: #edf0f3;
-                border-color: #dfe4ea;
+                color: #97a3b3;
+                background: #edf1f5;
+                border-color: #dbe2ea;
+            }
+            QProgressBar {
+                min-height: 8px;
+                max-height: 8px;
+                border: 1px solid #d8dee8;
+                border-radius: 4px;
+                background: #eef2f7;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: #2563eb;
+                border-radius: 4px;
             }
         """)
         scroll_area = QScrollArea()
@@ -176,21 +194,22 @@ class MainWindow(QMainWindow):
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        scroll_area.setStyleSheet("QScrollArea { background: #f6f7f9; border: none; }")
+        scroll_area.setStyleSheet("QScrollArea { background: #f6f8fb; border: none; }")
 
         scroll_body = QWidget()
-        scroll_body.setStyleSheet("QWidget { background: #f6f7f9; }")
+        scroll_body.setStyleSheet("QWidget { background: #f6f8fb; }")
         scroll_layout = QHBoxLayout(scroll_body)
-        scroll_layout.setContentsMargins(24, 20, 24, 20)
+        scroll_layout.setContentsMargins(28, 22, 28, 24)
         scroll_layout.setSpacing(0)
 
         content = QWidget()
         content.setObjectName("content")
-        content.setMaximumWidth(1500)
+        content.setMinimumWidth(900)
+        content.setMaximumWidth(1180)
         content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         content.setStyleSheet("QWidget#content { background: transparent; }")
         scroll_layout.addStretch(1)
-        scroll_layout.addWidget(content, 1)
+        scroll_layout.addWidget(content, 16)
         scroll_layout.addStretch(1)
         scroll_area.setWidget(scroll_body)
         root_layout.addWidget(scroll_area)
@@ -199,27 +218,17 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
 
-        title_label = QLabel("视频字幕提取")
-        title_font = title_label.font()
-        title_font.setPointSize(22)
-        title_font.setWeight(QFont.Weight.Bold)
-        title_label.setFont(title_font)
-        subtitle_label = QLabel("粘贴视频链接，自动提取中文字幕")
-        subtitle_label.setStyleSheet("color: #697586; font-size: 13px;")
-        layout.addWidget(title_label)
-        layout.addWidget(subtitle_label)
-
-        top_layout = QHBoxLayout()
-        top_layout.setSpacing(16)
-        layout.addLayout(top_layout)
-
-        input_box = self.create_card()
-        input_layout = QGridLayout(input_box)
-        input_layout.setContentsMargins(22, 22, 22, 22)
-        input_layout.setHorizontalSpacing(12)
-        input_layout.setVerticalSpacing(14)
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("粘贴 B 站或 YouTube 视频链接")
+        self.url_input.setPlaceholderText("请输入或粘贴视频链接，例如：https://www.bilibili.com/video/BV1GedwbPE1j/")
+        self.output_dir_input = QLineEdit()
+        self.output_dir_input.setPlaceholderText(DEFAULT_OUTPUT_DIR.name)
+        self.output_dir_pick_btn = QPushButton("选择目录")
+        self.decorate_button(self.output_dir_pick_btn, QStyle.StandardPixmap.SP_DirOpenIcon)
+        self.output_dir_pick_btn.clicked.connect(self.pick_output_dir)
+        self.open_button = QPushButton("打开目录")
+        self.decorate_button(self.open_button, QStyle.StandardPixmap.SP_DialogOpenButton)
+        self.open_button.setEnabled(False)
+
         self.model_combo = NoWheelComboBox()
         for label, value in get_model_choices(self.deployed_models):
             self.model_combo.addItem(label, value)
@@ -227,44 +236,112 @@ class MainWindow(QMainWindow):
         self.local_model_input = QLineEdit()
         self.local_model_input.setPlaceholderText("例如 D:/models/faster-whisper-large-v3")
         self.local_model_pick_btn = QPushButton("选择目录")
+        self.decorate_button(self.local_model_pick_btn, QStyle.StandardPixmap.SP_DirOpenIcon)
         self.local_model_pick_btn.clicked.connect(self.pick_local_model_dir)
-        self.model_info_label = QLabel("")
-        self.model_info_label.setWordWrap(True)
-        self.model_info_label.setStyleSheet("color: #555; font-size: 12px;")
-        self.output_dir_input = QLineEdit()
-        self.output_dir_input.setPlaceholderText(DEFAULT_OUTPUT_DIR.name)
-        self.output_dir_pick_btn = QPushButton("选择目录")
-        self.output_dir_pick_btn.clicked.connect(self.pick_output_dir)
         self.device_combo = NoWheelComboBox()
         self.device_combo.addItems(["auto", "cuda", "cpu"])
-        input_title = QLabel("主操作")
-        input_title.setStyleSheet("font-size: 16px; font-weight: 700;")
-        input_layout.addWidget(input_title, 0, 0, 1, 6)
-        input_subtitle = QLabel("粘贴视频链接并选择字幕输出位置")
-        input_subtitle.setStyleSheet("color: #697586; font-size: 12px;")
-        input_layout.addWidget(input_subtitle, 1, 0, 1, 6)
-        input_layout.addWidget(self.url_input, 2, 1, 1, 5)
-        input_layout.addWidget(QLabel("视频链接"), 2, 0)
-        input_layout.addWidget(QLabel("输出目录"), 3, 0)
-        input_layout.addWidget(self.output_dir_input, 3, 1, 1, 4)
-        input_layout.addWidget(self.output_dir_pick_btn, 3, 5)
-        self.model_summary_label = QLabel("模型：等待加载配置\n设备：等待加载配置")
-        self.model_summary_label.setWordWrap(True)
-        self.model_summary_label.setStyleSheet("color: #4b5563;")
-        self.model_adjust_hint_label = QLabel("模型和设备可在下方“模型管理”中调整")
-        self.model_adjust_hint_label.setStyleSheet("color: #697586; font-size: 12px;")
-        input_layout.addWidget(QLabel("当前配置"), 4, 0)
-        input_layout.addWidget(self.model_summary_label, 4, 1, 1, 5)
-        input_layout.addWidget(self.model_adjust_hint_label, 5, 1, 1, 5)
+
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(18)
+        logo = QLabel("cc")
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setFixedSize(48, 48)
+        logo_font = logo.font()
+        logo_font.setPointSize(18)
+        logo_font.setWeight(QFont.Weight.Black)
+        logo.setFont(logo_font)
+        logo.setStyleSheet("""
+            color: #2563eb;
+            background: #eaf2ff;
+            border-radius: 8px;
+            font-weight: 900;
+        """)
+        title_stack = QVBoxLayout()
+        title_stack.setSpacing(5)
+        title_label = QLabel("视频字幕提取")
+        title_font = title_label.font()
+        title_font.setPointSize(22)
+        title_font.setWeight(QFont.Weight.Bold)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: #172033;")
+        subtitle_label = QLabel("粘贴链接，自动提取中文字幕")
+        subtitle_label.setStyleSheet("color: #64748b; font-size: 13px; font-weight: 600;")
+        title_stack.addWidget(title_label)
+        title_stack.addWidget(subtitle_label)
+        header_layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignTop)
+        header_layout.addLayout(title_stack, 1)
+        self.advanced_button = QPushButton("高级设置")
+        self.decorate_button(self.advanced_button, QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        self.advanced_button.setMinimumHeight(40)
+        header_layout.addWidget(self.advanced_button, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(header_layout)
+
+        self.advanced_card = self.create_card()
+        advanced_layout = QVBoxLayout(self.advanced_card)
+        advanced_layout.setContentsMargins(24, 22, 24, 22)
+        advanced_placeholder = QLabel("")
+        advanced_placeholder.setMinimumHeight(120)
+        advanced_layout.addWidget(advanced_placeholder)
+        self.advanced_card.setVisible(False)
+        layout.addWidget(self.advanced_card)
+
+        main_card = self.create_card()
+        main_layout = QGridLayout(main_card)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setHorizontalSpacing(16)
+        main_layout.setVerticalSpacing(18)
+        main_layout.setColumnStretch(1, 1)
+        main_layout.setColumnMinimumWidth(0, 150)
+        main_layout.addWidget(
+            self.create_icon_label("视频链接", QStyle.StandardPixmap.SP_FileLinkIcon),
+            0,
+            0,
+        )
+        main_layout.addWidget(self.url_input, 0, 1, 1, 3)
+        main_layout.addWidget(
+            self.create_icon_label("输出目录", QStyle.StandardPixmap.SP_DirIcon),
+            1,
+            0,
+        )
+        main_layout.addWidget(self.output_dir_input, 1, 1)
+        main_layout.addWidget(self.output_dir_pick_btn, 1, 2)
+        main_layout.addWidget(self.open_button, 1, 3)
+
+        self.model_value_label = QLabel("等待加载配置")
+        self.device_value_label = QLabel("等待加载配置")
+        self.env_value_label = QLabel("未检查")
+        self.model_summary_label = QLabel("")
+        self.model_summary_label.hide()
+        config_layout = QHBoxLayout()
+        config_layout.setSpacing(12)
+        config_layout.addWidget(self.create_status_card("模型", self.model_value_label, QStyle.StandardPixmap.SP_DriveNetIcon), 1)
+        config_layout.addWidget(self.create_status_card("运行方式", self.device_value_label, QStyle.StandardPixmap.SP_ComputerIcon), 1)
+        config_layout.addWidget(self.create_status_card("环境状态", self.env_value_label, QStyle.StandardPixmap.SP_DialogApplyButton), 1)
+        main_layout.addWidget(
+            self.create_icon_label("当前配置", QStyle.StandardPixmap.SP_FileDialogInfoView),
+            2,
+            0,
+        )
+        main_layout.addLayout(config_layout, 2, 1, 1, 3)
+
+        self.env_status = QLabel("环境状态：未检查")
+        self.env_status.hide()
+        self.env_status.setWordWrap(True)
+        self.result_label = QLabel("当前状态：等待环境检查")
+        self.result_label.hide()
+        self.result_label.setWordWrap(True)
+        self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
         self.start_button = QPushButton("开始提取字幕")
         self.start_button.setMinimumHeight(58)
         self.start_button.setDefault(True)
+        self.decorate_button(self.start_button, QStyle.StandardPixmap.SP_MediaPlay)
         self.start_button.setStyleSheet("""
             QPushButton {
                 color: #ffffff;
                 background: #2563eb;
                 border: 1px solid #2563eb;
-                border-radius: 12px;
+                border-radius: 10px;
                 font-size: 17px;
                 font-weight: 700;
                 padding: 13px 18px;
@@ -278,216 +355,153 @@ class MainWindow(QMainWindow):
                 border-color: #1e40af;
             }
             QPushButton:disabled {
-                color: #d5dce8;
-                background: #8ea5cf;
-                border-color: #8ea5cf;
+                color: #d8e2f1;
+                background: #8da6cf;
+                border-color: #8da6cf;
             }
         """)
-        shadow = QGraphicsDropShadowEffect(self.start_button)
-        shadow.setBlurRadius(22)
-        shadow.setOffset(0, 6)
-        shadow.setColor(QColor(37, 99, 235, 80))
-        self.start_button.setGraphicsEffect(shadow)
-        input_layout.addWidget(self.start_button, 6, 0, 1, 6)
-        top_layout.addWidget(input_box, 3)
-
-        status_box = self.create_card()
-        status_layout = QVBoxLayout(status_box)
-        status_layout.setContentsMargins(22, 22, 22, 22)
-        status_layout.setSpacing(14)
-        status_title = QLabel("当前状态")
-        status_title.setStyleSheet("font-size: 16px; font-weight: 700;")
-        status_layout.addWidget(status_title)
-        self.env_status = QLabel("环境状态：未检查")
-        self.env_status.setWordWrap(True)
-        self.env_status.setStyleSheet("""
-            color: #374151;
-            background: #f3f6fa;
-            border-radius: 8px;
-            padding: 8px 10px;
-            font-weight: 600;
-        """)
-        self.result_label = QLabel("当前状态：等待环境检查")
-        self.result_label.setWordWrap(True)
-        self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.result_label.setStyleSheet("""
-            color: #374151;
-            background: #f3f6fa;
-            border-radius: 8px;
-            padding: 8px 10px;
-            font-weight: 600;
-        """)
-        status_layout.addWidget(self.env_status)
-        status_layout.addWidget(self.result_label)
-        strategy_label = QLabel("默认优先下载已有中文字幕，找不到时自动识别音频生成文本。")
-        strategy_label.setWordWrap(True)
-        strategy_label.setStyleSheet("color: #697586; line-height: 150%;")
-        status_layout.addWidget(strategy_label)
-        self.open_button = QPushButton("打开输出目录")
-        self.open_button.setEnabled(False)
-        status_layout.addWidget(self.open_button)
-        top_layout.addWidget(status_box, 2)
+        main_layout.addWidget(self.start_button, 3, 0, 1, 4)
+        layout.addWidget(main_card)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.hide()
         layout.addWidget(self.progress)
 
-        bottom_layout = QVBoxLayout()
-        bottom_layout.setSpacing(10)
-        layout.addLayout(bottom_layout, 1)
-
-        env_box = self.create_card()
-        env_layout = QVBoxLayout(env_box)
-        env_layout.setContentsMargins(16, 14, 16, 14)
-        env_layout.setSpacing(10)
-        env_summary_layout = QHBoxLayout()
-        env_title = QLabel("环境与诊断")
-        env_title.setStyleSheet("font-size: 14px; font-weight: 700;")
-        self.check_button = QPushButton("检查环境")
-        self.prepare_button = QPushButton("准备环境")
-        self.env_advanced_button = QPushButton("展开环境与诊断")
-        env_summary = QLabel("FFmpeg、yt-dlp、CUDA 与 Cookies 配置")
-        env_summary.setStyleSheet("color: #697586;")
-        env_summary_layout.addWidget(env_title)
-        env_summary_layout.addWidget(env_summary, 1)
-        env_summary_layout.addWidget(self.check_button)
-        env_summary_layout.addWidget(self.prepare_button)
-        env_summary_layout.addWidget(self.env_advanced_button)
-        env_layout.addLayout(env_summary_layout)
-
-        self.env_advanced_widget = QWidget()
-        env_advanced_layout = QGridLayout(self.env_advanced_widget)
-        env_advanced_layout.setHorizontalSpacing(12)
-        env_advanced_layout.setVerticalSpacing(10)
+        self.hidden_settings_widget = QWidget()
+        self.hidden_settings_widget.setVisible(False)
+        hidden_layout = QVBoxLayout(self.hidden_settings_widget)
+        hidden_layout.setContentsMargins(0, 0, 0, 0)
         self.ffmpeg_input = QLineEdit()
         self.ytdlp_input = QLineEdit()
-        env_advanced_layout.addWidget(QLabel("FFmpeg 路径"), 0, 0)
-        env_advanced_layout.addWidget(self.ffmpeg_input, 0, 1)
-        env_advanced_layout.addWidget(self.pick_button(self.ffmpeg_input), 0, 2)
-        env_advanced_layout.addWidget(QLabel("yt-dlp 路径"), 1, 0)
-        env_advanced_layout.addWidget(self.ytdlp_input, 1, 1)
-        env_advanced_layout.addWidget(self.pick_button(self.ytdlp_input), 1, 2)
-
         self.cookie_mode_combo = NoWheelComboBox()
         for mode in COOKIE_MODES:
             self.cookie_mode_combo.addItem(mode["label"], mode["name"])
-        env_advanced_layout.addWidget(QLabel("Cookies"), 2, 0)
-        env_advanced_layout.addWidget(self.cookie_mode_combo, 2, 1, 1, 2)
-
         self.cookie_browser_combo = NoWheelComboBox()
         self.cookie_browser_combo.addItems(["Chrome", "Edge", "Firefox"])
-        self.cookie_browser_label = QLabel("浏览器")
-        env_advanced_layout.addWidget(self.cookie_browser_label, 3, 0)
-        env_advanced_layout.addWidget(self.cookie_browser_combo, 3, 1, 1, 2)
-
+        self.browser_combo = self.cookie_browser_combo
+        self.cookie_browser_label = self.form_label("浏览器")
         self.cookies_input = QLineEdit()
         self.cookies_input.setPlaceholderText("cookies.txt 文件路径")
         self.cookies_pick_btn = self.pick_button(self.cookies_input)
-        self.cookies_label = QLabel("cookies.txt")
-        env_advanced_layout.addWidget(self.cookies_label, 4, 0)
-        env_advanced_layout.addWidget(self.cookies_input, 4, 1)
-        env_advanced_layout.addWidget(self.cookies_pick_btn, 4, 2)
-
-        cookies_note = QLabel("大多数公开视频不需要 Cookies。B 站登录字幕/会员资源或部分 YouTube 资源可能需要。从浏览器读取需要先关闭对应浏览器。")
-        cookies_note.setWordWrap(True)
-        cookies_note.setStyleSheet("color: #697586;")
-        env_advanced_layout.addWidget(cookies_note, 5, 0, 1, 3)
-
-        self.cookie_browser_label.setVisible(False)
-        self.cookie_browser_combo.setVisible(False)
-        self.cookies_label.setVisible(False)
-        self.cookies_input.setVisible(False)
-        self.cookies_pick_btn.setVisible(False)
-        self.cookie_mode_combo.currentIndexChanged.connect(self.update_cookie_mode_ui)
+        self.cookies_label = self.form_label("cookies.txt")
+        self.check_button = QPushButton("检查环境")
+        self.prepare_button = QPushButton("准备环境")
         self.update_ytdlp_button = QPushButton("更新 yt-dlp")
         self.gpu_button = QPushButton("安装 GPU 加速组件")
-        advanced_actions = QHBoxLayout()
-        advanced_actions.addWidget(self.update_ytdlp_button)
-        advanced_actions.addWidget(self.gpu_button)
-        advanced_actions.addStretch(1)
-        env_advanced_layout.addLayout(advanced_actions, 6, 0, 1, 3)
         self.env_detail_label = QLabel("")
         self.env_detail_label.setWordWrap(True)
         self.env_detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.env_detail_label.setStyleSheet("color: #4b5563;")
-        env_advanced_layout.addWidget(self.env_detail_label, 7, 0, 1, 3)
-        self.env_advanced_widget.setVisible(False)
-        self.env_advanced_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        env_layout.addWidget(self.env_advanced_widget)
-        bottom_layout.addWidget(env_box)
-
-        model_box = self.create_card()
-        model_layout = QVBoxLayout(model_box)
-        model_layout.setContentsMargins(16, 14, 16, 14)
-        model_layout.setSpacing(10)
-        model_summary_layout = QHBoxLayout()
-        model_title = QLabel("模型管理")
-        model_title.setStyleSheet("font-size: 14px; font-weight: 700;")
-        self.model_panel_button = QPushButton("展开模型管理")
-        model_hint = QLabel("管理 Whisper 模型和设备选择；主流程仍会优先下载已有中文字幕")
-        model_hint.setStyleSheet("color: #697586;")
-        model_summary_layout.addWidget(model_title)
-        model_summary_layout.addWidget(model_hint, 1)
-        model_summary_layout.addWidget(self.model_panel_button)
-        model_layout.addLayout(model_summary_layout)
-        self.model_panel_widget = QWidget()
-        model_panel_layout = QGridLayout(self.model_panel_widget)
-        model_panel_layout.setHorizontalSpacing(12)
-        model_panel_layout.setVerticalSpacing(10)
-        model_panel_layout.addWidget(QLabel("Whisper 模型"), 0, 0)
-        model_panel_layout.addWidget(self.model_combo, 0, 1)
-        model_panel_layout.addWidget(QLabel("设备"), 0, 2)
-        model_panel_layout.addWidget(self.device_combo, 0, 3)
-        self.local_model_label = QLabel("本地模型目录")
-        model_panel_layout.addWidget(self.local_model_label, 1, 0)
-        model_panel_layout.addWidget(self.local_model_input, 1, 1, 1, 3)
-        model_panel_layout.addWidget(self.local_model_pick_btn, 1, 4)
-        model_panel_layout.addWidget(self.model_info_label, 2, 0, 1, 5)
+        self.cookie_mode_combo.currentIndexChanged.connect(self.update_cookie_mode_ui)
+        self.local_model_label = self.form_label("本地模型目录")
+        self.model_info_label = QLabel("")
+        self.model_info_label.setWordWrap(True)
         self.deploy_model_button = QPushButton("部署模型")
         self.deploy_model_button.clicked.connect(self.deploy_model)
-        model_panel_layout.addWidget(self.deploy_model_button, 3, 0, 1, 5)
-        self.model_panel_widget.setVisible(False)
-        self.model_panel_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        model_layout.addWidget(self.model_panel_widget)
-        bottom_layout.addWidget(model_box)
+        for widget in [
+            self.ffmpeg_input,
+            self.ytdlp_input,
+            self.cookie_mode_combo,
+            self.cookie_browser_combo,
+            self.cookies_input,
+            self.cookies_pick_btn,
+            self.local_model_label,
+            self.local_model_input,
+            self.local_model_pick_btn,
+            self.model_combo,
+            self.device_combo,
+            self.model_info_label,
+            self.deploy_model_button,
+            self.env_detail_label,
+            self.check_button,
+            self.prepare_button,
+            self.update_ytdlp_button,
+            self.gpu_button,
+        ]:
+            hidden_layout.addWidget(widget)
+        layout.addWidget(self.hidden_settings_widget)
 
-        log_box = self.create_card()
-        log_layout = QVBoxLayout(log_box)
-        log_layout.setContentsMargins(16, 14, 16, 14)
-        log_layout.setSpacing(10)
+        log_card = self.create_card()
+        log_layout = QVBoxLayout(log_card)
+        log_layout.setContentsMargins(20, 20, 20, 20)
+        log_layout.setSpacing(12)
         log_header = QHBoxLayout()
+        log_header.setSpacing(12)
+        log_icon = QLabel()
+        log_icon.setFixedSize(34, 34)
+        log_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        log_icon.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView).pixmap(20, 20))
+        log_icon.setStyleSheet("""
+            background: #eef6ff;
+            border: 1px solid #dbeafe;
+            border-radius: 7px;
+        """)
         log_title = QLabel("运行日志")
-        log_title.setStyleSheet("font-size: 14px; font-weight: 700;")
-        self.log_toggle_button = QPushButton("展开运行日志")
-        log_hint = QLabel("后台任务输出与详细错误信息")
-        log_hint.setStyleSheet("color: #697586;")
-        log_header.addWidget(log_title)
-        log_header.addWidget(log_hint, 1)
-        log_header.addWidget(self.log_toggle_button)
+        log_title.setStyleSheet("font-size: 15px; font-weight: 700; color: #172033;")
+        self.log_toggle_button = QPushButton("清空日志")
+        self.decorate_button(self.log_toggle_button, QStyle.StandardPixmap.SP_TrashIcon)
+        log_header.addWidget(log_icon)
+        log_header.addWidget(log_title, 1)
+        log_header.addWidget(self.log_toggle_button, 0, Qt.AlignmentFlag.AlignTop)
         log_layout.addLayout(log_header)
-        self.log_panel_widget = QWidget()
+        self.log_panel_widget = QFrame()
+        self.log_panel_widget.setObjectName("logPanel")
+        self.log_panel_widget.setStyleSheet("""
+            QFrame#logPanel {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 7px;
+            }
+            QPlainTextEdit {
+                border: none;
+                background: #ffffff;
+                font-family: Consolas, "Microsoft YaHei UI";
+                color: #334155;
+            }
+        """)
         log_panel_layout = QVBoxLayout(self.log_panel_widget)
-        log_panel_layout.setContentsMargins(0, 0, 0, 0)
+        log_panel_layout.setContentsMargins(8, 8, 8, 8)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMinimumHeight(180)
-        self.log_view.setMaximumHeight(260)
+        self.log_view.setMinimumHeight(150)
+        self.log_view.setMaximumHeight(220)
         self.log_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         log_panel_layout.addWidget(self.log_view)
-        self.log_panel_widget.setVisible(False)
+        self.log_panel_widget.setVisible(True)
         self.log_panel_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         log_layout.addWidget(self.log_panel_widget)
-        bottom_layout.addWidget(log_box)
+        layout.addWidget(log_card)
+
+        footer_layout = QHBoxLayout()
+        footer_layout.setContentsMargins(0, 6, 8, 0)
+        footer_layout.setSpacing(10)
+        footer_icon = QLabel()
+        footer_icon.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation).pixmap(16, 16))
+        help_label = QLabel("帮助文档")
+        help_label.setStyleSheet("color: #64748b; font-weight: 600;")
+        self.footer_summary_label = QLabel("")
+        self.footer_summary_label.hide()
+        self.footer_summary_label.setStyleSheet("color: #64748b; font-weight: 600;")
+        footer_version_label = QLabel("版本：1.0.0")
+        footer_version_label.setStyleSheet("color: #64748b; font-weight: 600;")
+        footer_layout.addWidget(footer_icon)
+        footer_layout.addWidget(help_label)
+        footer_layout.addWidget(self.footer_summary_label, 1)
+        footer_layout.addWidget(footer_version_label, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(footer_layout)
         layout.addStretch(1)
+        self.env_advanced_visible = False
+        self.model_panel_visible = False
+        self.log_panel_visible = True
+        self.env_advanced_button = QPushButton("环境与诊断")
+        self.model_panel_button = QPushButton("模型管理")
 
         self.check_button.clicked.connect(lambda: self.run_env_task("check"))
         self.prepare_button.clicked.connect(lambda: self.run_env_task("prepare"))
         self.update_ytdlp_button.clicked.connect(lambda: self.run_env_task("update_ytdlp"))
         self.gpu_button.clicked.connect(lambda: self.run_env_task("install_gpu"))
-        self.env_advanced_button.clicked.connect(self.toggle_env_advanced)
-        self.model_panel_button.clicked.connect(self.toggle_model_panel)
-        self.log_toggle_button.clicked.connect(self.toggle_log_panel)
+        self.advanced_button.clicked.connect(self.toggle_advanced_card)
+        self.log_toggle_button.clicked.connect(self.clear_log)
         self.start_button.clicked.connect(self.start_extract)
         self.open_button.clicked.connect(self.open_output_dir)
         self.model_combo.currentIndexChanged.connect(self.update_model_info)
@@ -525,10 +539,82 @@ class MainWindow(QMainWindow):
         card.setGraphicsEffect(shadow)
         return card
 
+    def create_icon_label(self, text: str, icon: QStyle.StandardPixmap) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+        icon_label = QLabel()
+        icon_label.setFixedSize(42, 42)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setPixmap(self.style().standardIcon(icon).pixmap(24, 24))
+        icon_label.setStyleSheet("""
+            background: #eef6ff;
+            border: 1px solid #dbeafe;
+            border-radius: 7px;
+        """)
+        text_label = QLabel(text)
+        text_label.setStyleSheet("color: #1f2937; font-size: 14px; font-weight: 700;")
+        layout.addWidget(icon_label)
+        layout.addWidget(text_label, 1, Qt.AlignmentFlag.AlignVCenter)
+        return container
+
+    def create_status_card(self, title: str, value_label: QLabel, icon: QStyle.StandardPixmap) -> QFrame:
+        card = QFrame()
+        card.setObjectName("statusCard")
+        card.setMinimumHeight(74)
+        card.setStyleSheet("""
+            QFrame#statusCard {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+            }
+        """)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(14)
+        icon_label = QLabel()
+        icon_label.setFixedSize(44, 44)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setPixmap(self.style().standardIcon(icon).pixmap(24, 24))
+        icon_label.setStyleSheet("""
+            background: #eef6ff;
+            border-radius: 22px;
+        """)
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(3)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("color: #64748b; font-weight: 700;")
+        value_label.setWordWrap(True)
+        value_label.setStyleSheet("color: #172033; font-size: 14px; font-weight: 700;")
+        text_layout.addWidget(title_label)
+        text_layout.addWidget(value_label)
+        layout.addWidget(icon_label)
+        layout.addLayout(text_layout, 1)
+        return card
+
+    def decorate_button(self, button: QPushButton, icon: QStyle.StandardPixmap) -> None:
+        button.setIcon(self.style().standardIcon(icon))
+        button.setIconSize(button.iconSize())
+
     def pick_button(self, target: QLineEdit) -> QPushButton:
         button = QPushButton("选择")
+        self.decorate_button(button, QStyle.StandardPixmap.SP_DialogOpenButton)
         button.clicked.connect(lambda: self.pick_file(target))
         return button
+
+    def form_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("color: #334155; font-weight: 600;")
+        return label
+
+    def field_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("color: #475569; font-weight: 700;")
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        return label
 
     def pick_file(self, target: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择文件")
@@ -550,23 +636,13 @@ class MainWindow(QMainWindow):
     def selected_output_dir(self) -> str:
         return get_selected_output_dir(self.output_dir_input.text())
 
-    def toggle_env_advanced(self) -> None:
+    def toggle_advanced_card(self) -> None:
         self.env_advanced_visible = not self.env_advanced_visible
-        self.env_advanced_widget.setVisible(self.env_advanced_visible)
-        self.env_advanced_button.setText("收起环境与诊断" if self.env_advanced_visible else "展开环境与诊断")
-        self.update_collapsible_geometry(self.env_advanced_widget)
+        self.advanced_card.setVisible(self.env_advanced_visible)
+        self.update_collapsible_geometry(self.advanced_card)
 
-    def toggle_model_panel(self) -> None:
-        self.model_panel_visible = not self.model_panel_visible
-        self.model_panel_widget.setVisible(self.model_panel_visible)
-        self.model_panel_button.setText("收起模型管理" if self.model_panel_visible else "展开模型管理")
-        self.update_collapsible_geometry(self.model_panel_widget)
-
-    def toggle_log_panel(self) -> None:
-        self.log_panel_visible = not self.log_panel_visible
-        self.log_panel_widget.setVisible(self.log_panel_visible)
-        self.log_toggle_button.setText("收起运行日志" if self.log_panel_visible else "展开运行日志")
-        self.update_collapsible_geometry(self.log_panel_widget)
+    def clear_log(self) -> None:
+        self.log_view.clear()
 
     def update_collapsible_geometry(self, widget: QWidget) -> None:
         layout = widget.layout()
@@ -579,6 +655,19 @@ class MainWindow(QMainWindow):
 
     def set_env_summary(self, message: str) -> None:
         self.env_status.setText(f"环境状态：{message}")
+        self.update_status_badge()
+
+    def update_status_badge(self) -> None:
+        if not hasattr(self, "env_value_label"):
+            return
+        env_text = self.env_status.text().replace("环境状态：", "").strip()
+        state_text = self.result_label.text().replace("当前状态：", "").strip()
+        ready = "就绪" in env_text or "准备就绪" in state_text
+        failed = "未就绪" in env_text or "失败" in state_text or "缺少" in state_text
+        color = "#16a34a" if ready and not failed else "#dc2626" if failed else "#172033"
+        summary = env_text if env_text and env_text != "未检查" else state_text
+        self.env_value_label.setText(summary or "未检查")
+        self.env_value_label.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: 700;")
 
     def update_model_summary(self) -> None:
         if not hasattr(self, "model_summary_label"):
@@ -594,6 +683,28 @@ class MainWindow(QMainWindow):
         else:
             model_text = "未选择识别模型"
         self.model_summary_label.setText(f"模型：{model_text}\n设备：{device}")
+        if hasattr(self, "model_value_label"):
+            self.model_value_label.setText(model_text)
+        if hasattr(self, "device_value_label"):
+            device_text = "CPU 模式" if device == "cpu" else "GPU 模式" if device == "cuda" else "自动选择"
+            self.device_value_label.setText(device_text)
+        self.update_footer_summary(model_text, device)
+
+    def update_footer_summary(self, model_text: str | None = None, device: str | None = None) -> None:
+        if not hasattr(self, "footer_summary_label"):
+            return
+        if model_text is None or device is None:
+            model_name = self.model_combo.currentData()
+            device = self.device_combo.currentText()
+            if is_local_model_choice(model_name):
+                local_dir = self.local_model_input.text().strip()
+                model_text = "本地模型" if local_dir else "本地模型未选择"
+            elif model_name:
+                status = "已部署" if model_name in self.deployed_models else "未部署"
+                model_text = f"{model_name}（{status}）"
+            else:
+                model_text = "未选择识别模型"
+        self.footer_summary_label.setText(f"Whisper 模型：{model_text}  |  设备：{device}")
 
     def update_model_info(self) -> None:
         model_name = self.model_combo.currentData()
@@ -696,6 +807,7 @@ class MainWindow(QMainWindow):
 
     def set_status(self, message: str) -> None:
         self.result_label.setText(f"当前状态：{message}")
+        self.update_status_badge()
 
     def status_from_log(self, message: str) -> str | None:
         if "开始环境检查" in message or "环境检查线程已启动" in message:
