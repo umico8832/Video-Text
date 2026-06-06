@@ -6,11 +6,12 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Qt, QTimer
+from PySide6.QtCore import QObject, QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStyle,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -105,6 +107,385 @@ class NoWheelComboBox(QComboBox):
         event.ignore()
 
 
+class ClickablePathBox(QFrame):
+    clicked = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("pathBox")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(52)
+        self.setStyleSheet("""
+            QFrame#pathBox {
+                background: #f8fafc;
+                border: 1px solid #d8dee8;
+                border-radius: 8px;
+            }
+            QFrame#pathBox:hover {
+                background: #eef6ff;
+                border-color: #93c5fd;
+            }
+        """)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(24, 24)
+        self.title_label = QLabel("当前路径")
+        self.title_label.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 700;")
+        self.path_label = QLabel("点击修改路径")
+        self.path_label.setWordWrap(True)
+        self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.path_label.setStyleSheet("color: #172033; font-weight: 600;")
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(2)
+        text_layout.addWidget(self.title_label)
+        text_layout.addWidget(self.path_label)
+        self.edit_label = QLabel("点击修改路径")
+        self.edit_label.setStyleSheet("color: #2563eb; font-weight: 700;")
+        layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(text_layout, 1)
+        layout.addWidget(self.edit_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def set_icon(self, icon) -> None:
+        self.icon_label.setPixmap(icon.pixmap(18, 18))
+
+    def set_path(self, path: str) -> None:
+        self.path_label.setText(path or "未检测到路径，点击手动指定")
+
+
+class ToolStatusCard(QFrame):
+    def __init__(self, tool_name: str, path_icon, show_version: bool = True):
+        super().__init__()
+        self.show_version = show_version
+        self.setObjectName("toolStatusCard")
+        self.setStyleSheet("""
+            QFrame#toolStatusCard {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        header.setSpacing(10)
+        self.status_dot = QLabel()
+        self.status_dot.setFixedSize(12, 12)
+        self.name_label = QLabel(tool_name)
+        self.name_label.setStyleSheet("font-size: 15px; font-weight: 800; color: #172033;")
+        self.status_label = QLabel("未检查")
+        self.status_label.setStyleSheet("""
+            color: #475569;
+            background: #f1f5f9;
+            border-radius: 8px;
+            padding: 3px 8px;
+            font-weight: 700;
+        """)
+        header.addWidget(self.status_dot)
+        header.addWidget(self.name_label, 1)
+        header.addWidget(self.status_label)
+        layout.addLayout(header)
+
+        meta = QHBoxLayout()
+        meta.setSpacing(8)
+        self.source_label = QLabel("来源：未知")
+        self.version_label = QLabel("版本：未知")
+        for label in (self.source_label, self.version_label):
+            label.setStyleSheet("color: #64748b; font-weight: 600;")
+            label.setWordWrap(True)
+        meta.addWidget(self.source_label, 1)
+        if self.show_version:
+            meta.addWidget(self.version_label, 1)
+        else:
+            self.version_label.hide()
+        layout.addLayout(meta)
+
+        self.path_box = ClickablePathBox()
+        self.path_box.set_icon(path_icon)
+        layout.addWidget(self.path_box)
+
+    def update_status(self, data: dict | None) -> None:
+        if not data:
+            status = "检测失败"
+            color = "#dc2626"
+            source = "未知"
+            version = "未知"
+            path = ""
+        else:
+            ok = bool(data.get("ok"))
+            status = "已可用" if ok else "未找到"
+            color = "#16a34a" if ok else "#dc2626"
+            source = data.get("source") or "未知"
+            version = data.get("version") or "未知"
+            path = data.get("path") or ""
+        self.status_dot.setStyleSheet(f"background: {color}; border-radius: 6px;")
+        self.status_label.setText(status)
+        self.status_label.setStyleSheet(f"""
+            color: {color};
+            background: {'#dcfce7' if color == '#16a34a' else '#fee2e2'};
+            border-radius: 8px;
+            padding: 3px 8px;
+            font-weight: 700;
+        """)
+        self.source_label.setText(f"来源：{source}")
+        if self.show_version:
+            self.version_label.setText(f"版本：{version}")
+        self.path_box.set_path(path)
+
+
+class AdvancedSettingsDialog(QDialog):
+    def __init__(self, main_window: "MainWindow"):
+        super().__init__(main_window)
+        self.main_window = main_window
+        self.thread: QThread | None = None
+        self.worker: QObject | None = None
+        self.setWindowTitle("高级设置")
+        self.resize(820, 560)
+        self.setModal(False)
+        self.build_ui()
+        QTimer.singleShot(0, self.run_detection)
+
+    def build_ui(self) -> None:
+        self.setStyleSheet("""
+            QDialog {
+                background: #f6f8fb;
+                color: #17202c;
+            }
+            QLabel {
+                color: #17202c;
+                background: transparent;
+            }
+            QPushButton {
+                min-height: 24px;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 7px;
+                padding: 8px 14px;
+                font-weight: 600;
+                color: #172033;
+            }
+            QPushButton:hover {
+                background: #f3f6fa;
+                border-color: #a9b6c7;
+                color: #172033;
+            }
+            QPushButton:pressed {
+                background: #e8eef6;
+                color: #172033;
+            }
+            QPushButton:disabled {
+                color: #97a3b3;
+                background: #edf1f5;
+                border-color: #dbe2ea;
+            }
+            QTabWidget::pane {
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #ffffff;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #edf2f7;
+                color: #475569;
+                border: 1px solid #d8dee8;
+                border-bottom: none;
+                padding: 9px 14px;
+                margin-right: 4px;
+                border-top-left-radius: 7px;
+                border-top-right-radius: 7px;
+                font-weight: 700;
+            }
+            QTabBar::tab:selected {
+                background: #ffffff;
+                color: #172033;
+            }
+        """)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(22, 20, 22, 18)
+        root.setSpacing(14)
+
+        header = QHBoxLayout()
+        title = QLabel("高级设置")
+        title_font = title.font()
+        title_font.setPointSize(18)
+        title_font.setWeight(QFont.Weight.Bold)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #172033; font-weight: 800;")
+        header.addWidget(title, 1)
+        root.addLayout(header)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.build_environment_tab(), "环境与工具")
+        self.tabs.addTab(self.placeholder_tab("模型与运行设置后续完善。"), "模型与运行")
+        self.tabs.addTab(self.placeholder_tab("Cookies 与访问设置后续完善。"), "Cookies 与访问")
+        root.addWidget(self.tabs, 1)
+
+        footer = QHBoxLayout()
+        hint = QLabel("设置会自动保存")
+        hint.setStyleSheet("color: #64748b; font-weight: 600;")
+        footer.addWidget(hint, 1)
+        footer.addWidget(self.update_tools_button)
+        footer.addWidget(self.redetect_button)
+        footer.addWidget(self.restore_button)
+        root.addLayout(footer)
+
+    def build_environment_tab(self) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet("QWidget { background: #ffffff; }")
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(18)
+
+        left = QVBoxLayout()
+        left.setSpacing(12)
+        self.update_tools_button = QPushButton("更新工具")
+        self.redetect_button = QPushButton("重新检测")
+        self.restore_button = QPushButton("恢复使用内置工具")
+        self.update_tools_button.setStyleSheet("color: #172033;")
+        self.redetect_button.setStyleSheet("color: #172033;")
+        self.restore_button.setStyleSheet("color: #172033;")
+        self.update_tools_button.clicked.connect(self.update_tools)
+        self.redetect_button.clicked.connect(self.run_detection)
+        self.restore_button.clicked.connect(self.restore_builtin_tools)
+
+        self.ffmpeg_card = ToolStatusCard("FFmpeg", self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon), show_version=False)
+        self.ytdlp_card = ToolStatusCard("yt-dlp", self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
+        self.ffmpeg_card.path_box.clicked.connect(lambda: self.choose_tool_path("ffmpeg"))
+        self.ytdlp_card.path_box.clicked.connect(lambda: self.choose_tool_path("yt_dlp"))
+        left.addWidget(self.ffmpeg_card)
+        left.addWidget(self.ytdlp_card)
+        left.addStretch(1)
+        layout.addLayout(left, 3)
+
+        notes = QFrame()
+        notes.setObjectName("notesPanel")
+        notes.setStyleSheet("""
+            QFrame#notesPanel {
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+            }
+        """)
+        notes_layout = QVBoxLayout(notes)
+        notes_layout.setContentsMargins(16, 16, 16, 16)
+        notes_layout.setSpacing(10)
+        notes_title = QLabel("说明")
+        notes_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #172033;")
+        notes_body = QLabel(
+            "软件会优先使用内置工具，无需手动配置即可正常使用。\n\n"
+            "如需使用本机已有工具，可点击路径自定义位置。\n\n"
+            "遇到下载解析失败时，可尝试在项目环境中更新 yt-dlp。"
+        )
+        notes_body.setWordWrap(True)
+        notes_body.setStyleSheet("color: #475569; line-height: 150%; font-weight: 600;")
+        notes_layout.addWidget(notes_title)
+        notes_layout.addWidget(notes_body)
+        notes_layout.addStretch(1)
+        layout.addWidget(notes, 2)
+        return page
+
+    def placeholder_tab(self, text: str) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet("QWidget { background: #ffffff; }")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        label = QLabel(text)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("color: #64748b; font-size: 14px; font-weight: 700;")
+        layout.addWidget(label, 1)
+        return page
+
+    def set_busy(self, busy: bool) -> None:
+        self.update_tools_button.setEnabled(not busy)
+        self.redetect_button.setEnabled(not busy)
+        self.restore_button.setEnabled(not busy)
+
+    def choose_tool_path(self, key: str) -> None:
+        title = "选择 FFmpeg 可执行文件" if key == "ffmpeg" else "选择 yt-dlp 可执行文件"
+        target = self.main_window.ffmpeg_input if key == "ffmpeg" else self.main_window.ytdlp_input
+        current = target.text().strip() or str(ROOT)
+        path, _ = QFileDialog.getOpenFileName(self, title, current, "可执行文件 (*.exe);;所有文件 (*)")
+        if not path:
+            return
+        target.setText(path)
+        self.main_window.save_settings_now()
+        self.run_detection()
+
+    def restore_builtin_tools(self) -> None:
+        self.main_window.ffmpeg_input.setText("")
+        self.main_window.ytdlp_input.setText("")
+        self.main_window.save_settings_now()
+        self.run_detection()
+
+    def update_tools(self) -> None:
+        self.main_window.save_settings_now()
+        self.main_window.append_log_separator()
+        self.main_window.append_log("开始更新 yt-dlp")
+        self.main_window.set_status("正在更新 yt-dlp")
+        self.start_env_action("update_ytdlp", "更新中")
+
+    def run_detection(self) -> None:
+        self.start_env_action("check", "检测中")
+
+    def start_env_action(self, action: str, label: str) -> None:
+        if self.thread is not None:
+            return
+        self.ffmpeg_card.update_status(None)
+        self.ytdlp_card.update_status(None)
+        self.ffmpeg_card.status_label.setText("检测中")
+        self.ytdlp_card.status_label.setText(label)
+        self.set_busy(True)
+        self.thread = QThread()
+        self.worker = EnvWorker(
+            self.main_window.ffmpeg_input.text(),
+            self.main_window.ytdlp_input.text(),
+            action,
+        )
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.log.connect(self.main_window.append_log)
+        self.worker.done.connect(self.detection_done)
+        self.worker.done.connect(self.thread.quit)
+        self.worker.done.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self.clear_worker)
+        self.thread.start()
+
+    def detection_done(self, ok: bool, report: dict) -> None:
+        self.ffmpeg_card.update_status(report.get("ffmpeg") if report else None)
+        self.ytdlp_card.update_status(report.get("yt-dlp") if report else None)
+        if report:
+            summary = build_env_summary(report, ok)
+            self.main_window.env_ready = ok
+            self.main_window.set_env_summary(summary)
+            details_text = format_env_report(report)
+            self.main_window.env_status.setToolTip(details_text)
+            self.main_window.env_detail_label.setText(details_text)
+            self.main_window.cuda_ok = report.get("cuda", {}).get("ok", False)
+            self.main_window.update_model_info()
+            self.main_window.refresh_buttons(False)
+        self.set_busy(False)
+
+    def clear_worker(self) -> None:
+        self.worker = None
+        self.thread = None
+
+    def closeEvent(self, event) -> None:
+        if self.thread is not None:
+            self.thread.quit()
+            self.thread.wait(1500)
+        super().closeEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -118,6 +499,7 @@ class MainWindow(QMainWindow):
         self.log_panel_visible = False
         self.thread: QThread | None = None
         self.worker: QObject | None = None
+        self.advanced_settings_dialog: AdvancedSettingsDialog | None = None
         self.output_path = ""
         self.loading_settings = False
         self.env_task_autosave = True
@@ -500,7 +882,7 @@ class MainWindow(QMainWindow):
         self.prepare_button.clicked.connect(lambda: self.run_env_task("prepare"))
         self.update_ytdlp_button.clicked.connect(lambda: self.run_env_task("update_ytdlp"))
         self.gpu_button.clicked.connect(lambda: self.run_env_task("install_gpu"))
-        self.advanced_button.clicked.connect(self.toggle_advanced_card)
+        self.advanced_button.clicked.connect(self.open_advanced_settings)
         self.log_toggle_button.clicked.connect(self.clear_log)
         self.start_button.clicked.connect(self.start_extract)
         self.open_button.clicked.connect(self.open_output_dir)
@@ -640,6 +1022,14 @@ class MainWindow(QMainWindow):
         self.env_advanced_visible = not self.env_advanced_visible
         self.advanced_card.setVisible(self.env_advanced_visible)
         self.update_collapsible_geometry(self.advanced_card)
+
+    def open_advanced_settings(self) -> None:
+        if self.advanced_settings_dialog is None:
+            self.advanced_settings_dialog = AdvancedSettingsDialog(self)
+        self.advanced_settings_dialog.show()
+        self.advanced_settings_dialog.raise_()
+        self.advanced_settings_dialog.activateWindow()
+        self.advanced_settings_dialog.run_detection()
 
     def clear_log(self) -> None:
         self.log_view.clear()
@@ -907,14 +1297,6 @@ class MainWindow(QMainWindow):
             details_text = format_env_report(report)
             self.env_status.setToolTip(details_text)
             self.env_detail_label.setText(details_text)
-            self.loading_settings = not self.env_task_autosave
-            try:
-                if report.get("ffmpeg", {}).get("path") and not self.ffmpeg_input.text().strip():
-                    self.ffmpeg_input.setText(report["ffmpeg"]["path"])
-                if report.get("yt-dlp", {}).get("path") and not self.ytdlp_input.text().strip():
-                    self.ytdlp_input.setText(report["yt-dlp"]["path"])
-            finally:
-                self.loading_settings = False
             self.cuda_ok = report.get("cuda", {}).get("ok", False)
             self.update_model_info()
         self.append_log("环境已就绪" if ok else "环境未就绪，请配置路径或下载缺失依赖")

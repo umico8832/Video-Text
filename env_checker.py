@@ -28,6 +28,15 @@ def local_bin(name: str) -> Path:
     return scripts_dir / executable
 
 
+def same_file(path_a: str | Path | None, path_b: str | Path | None) -> bool:
+    if not path_a or not path_b:
+        return False
+    try:
+        return Path(path_a).resolve() == Path(path_b).resolve()
+    except Exception:
+        return str(path_a) == str(path_b)
+
+
 def install_command(*packages: str, upgrade: bool = False) -> list[str]:
     uv = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
     if Path(uv).exists() or shutil.which("uv"):
@@ -65,32 +74,89 @@ def check_command_available(path_or_command: str) -> dict:
     }
 
 
+def command_version(path_or_command: str, timeout: int = 5) -> str:
+    if not path_or_command:
+        return ""
+    try:
+        result = subprocess.run(
+            [path_or_command, "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception:
+        return ""
+    first_line = (result.stdout or "").splitlines()[0].strip() if result.stdout else ""
+    return first_line
+
+
+def ytdlp_version(path_or_command: str, timeout: int = 5) -> str:
+    if not path_or_command:
+        return ""
+    try:
+        result = subprocess.run(
+            [path_or_command, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception:
+        return ""
+    first_line = (result.stdout or "").splitlines()[0].strip() if result.stdout else ""
+    return first_line
+
+
 def check_ffmpeg(ffmpeg_path: str | None = None) -> dict:
-    user_ffmpeg = ffmpeg_path.strip() if path_exists(ffmpeg_path) else None
+    configured_ffmpeg = str(ffmpeg_path or "").strip()
     bundled_ffmpeg_path = local_bin("ffmpeg")
+    if configured_ffmpeg:
+        ok = path_exists(configured_ffmpeg)
+        source = "内置工具" if ok and same_file(configured_ffmpeg, bundled_ffmpeg_path) else "手动指定"
+        return {
+            "ok": ok,
+            "path": configured_ffmpeg,
+            "source": source,
+            "version": command_version(configured_ffmpeg) if ok else "",
+            "error": "" if ok else "指定路径不存在",
+        }
     bundled_ffmpeg = str(bundled_ffmpeg_path) if bundled_ffmpeg_path.exists() else None
     system_ffmpeg = shutil.which("ffmpeg")
-    ffmpeg = user_ffmpeg or bundled_ffmpeg or system_ffmpeg
-    ffmpeg_source = "用户指定" if user_ffmpeg else "软件目录" if bundled_ffmpeg else "系统 PATH" if system_ffmpeg else "缺失"
+    ffmpeg = bundled_ffmpeg or system_ffmpeg
+    ffmpeg_source = "内置工具" if bundled_ffmpeg else "系统 PATH" if system_ffmpeg else "缺失"
     return {
         "ok": bool(ffmpeg),
         "path": ffmpeg or "",
         "source": ffmpeg_source,
+        "version": command_version(ffmpeg) if ffmpeg else "",
     }
 
 
 def check_ytdlp(yt_dlp_path: str | None = None) -> dict:
-    user_ytdlp = yt_dlp_path.strip() if path_exists(yt_dlp_path) else None
+    configured_ytdlp = str(yt_dlp_path or "").strip()
     bundled_ytdlp_path = local_bin("yt-dlp")
+    if configured_ytdlp:
+        ok = path_exists(configured_ytdlp)
+        source = "内置工具" if ok and same_file(configured_ytdlp, bundled_ytdlp_path) else "手动指定"
+        return {
+            "ok": ok,
+            "path": configured_ytdlp,
+            "source": source,
+            "version": ytdlp_version(configured_ytdlp) if ok else "",
+            "error": "" if ok else "指定路径不存在",
+        }
     bundled_ytdlp = str(bundled_ytdlp_path) if bundled_ytdlp_path.exists() else None
     system_ytdlp = shutil.which("yt-dlp")
-    ytdlp = user_ytdlp or bundled_ytdlp or system_ytdlp
-    ytdlp_source = "用户指定" if user_ytdlp else "软件环境" if bundled_ytdlp else "系统 PATH" if system_ytdlp else "缺失"
+    ytdlp = bundled_ytdlp or system_ytdlp
+    ytdlp_source = "内置工具" if bundled_ytdlp else "系统 PATH" if system_ytdlp else "缺失"
     return {
         "ok": bool(ytdlp),
         "path": ytdlp or "",
         "source": ytdlp_source,
-        "version": package_version("yt-dlp"),
+        "version": ytdlp_version(ytdlp) if ytdlp else package_version("yt-dlp"),
     }
 
 
