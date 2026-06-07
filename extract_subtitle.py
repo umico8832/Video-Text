@@ -352,14 +352,14 @@ def download_audio(
             speed = status.get("_speed_str", "").strip()
             eta = status.get("_eta_str", "").strip()
             if percent:
-                message = f"下载音频 {percent} {speed} ETA {eta}"
+                message = f"正在下载音频：{percent} {speed} ETA {eta}"
                 if log_callback:
                     log_callback(message)
                 else:
                     print(f"\r    {message}", end="", flush=True)
         elif status.get("status") == "finished":
             if log_callback:
-                log_callback("音频下载完成，正在转码")
+                log_callback("音频下载完成，正在转码为 MP3")
             else:
                 print("\r    音频下载完成，正在转码...".ljust(60), flush=True)
 
@@ -404,30 +404,38 @@ def transcribe_audio(
     device: str,
     compute_type: str,
     log_callback: LogCallback | None = None,
+    model_display_name: str | None = None,
+    model_is_local: bool | None = None,
 ) -> str:
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
-        raise RuntimeError("Whisper 依赖缺失：请先点击“准备环境”安装 faster-whisper 后再试。") from exc
+        raise RuntimeError(f"模型加载失败：Whisper 依赖缺失，请先安装 faster-whisper。\n详情：{exc}") from exc
 
     if device == "auto":
         device = detect_device()
     if compute_type == "auto":
         compute_type = "int8_float16" if device == "cuda" else "int8"
 
-    log(f"正在下载/加载 Whisper 模型：{model_name} / {device} / {compute_type}", log_callback)
+    display_name = (model_display_name or model_name).strip()
+    if model_is_local is None:
+        model_is_local = Path(model_name).is_dir()
+    if model_is_local:
+        log(f"正在加载本地 Whisper 模型：{display_name} / {device} / {compute_type}", log_callback)
+    else:
+        log(f"开始下载 Whisper 模型：{display_name} / {device} / {compute_type}", log_callback)
     try:
         model = WhisperModel(model_name, device=device, compute_type=compute_type)
     except Exception as exc:
         if device != "cpu" and is_gpu_runtime_error(exc):
-            log(f"GPU 加载失败，切到 CPU int8：{exc}", log_callback)
+            log(f"模型加载失败：GPU 模式不可用，已切换为 CPU int8。\n详情：{exc}", log_callback)
             device = "cpu"
             compute_type = "int8"
             model = WhisperModel(model_name, device="cpu", compute_type="int8")
         else:
             raise
 
-    log("开始中文语音识别", log_callback)
+    log("正在识别音频内容...", log_callback)
     try:
         segments, info = model.transcribe(
             str(audio_path),
@@ -437,7 +445,7 @@ def transcribe_audio(
         )
     except Exception as exc:
         if device != "cpu" and is_gpu_runtime_error(exc):
-            log(f"GPU 运行库不可用，切到 CPU int8：{exc}", log_callback)
+            log(f"识别失败：GPU 运行库不可用，已切换为 CPU int8 后重试。\n详情：{exc}", log_callback)
             device = "cpu"
             compute_type = "int8"
             model = WhisperModel(model_name, device="cpu", compute_type="int8")
@@ -463,6 +471,45 @@ def transcribe_audio(
     return clean_lines(lines)
 
 
+def ensure_local_whisper_model(
+    model_name: str,
+    log_callback: LogCallback | None = None,
+    download_model_name: str | None = None,
+    download_dir: str | Path | None = None,
+) -> str:
+    try:
+        from model_config import get_official_model_dir, is_preset_model, is_valid_model_dir
+    except ImportError:
+        return model_name
+
+    model_value = model_name.strip()
+    target_dir = Path(download_dir) if download_dir else None
+    source_model = (download_model_name or "").strip()
+    if not source_model and is_preset_model(model_value):
+        source_model = model_value
+        target_dir = get_official_model_dir(model_value)
+    if not source_model or target_dir is None:
+        return model_name
+
+    if is_valid_model_dir(target_dir):
+        log(f"已检测到本地模型：{source_model}", log_callback)
+        return str(target_dir)
+
+    try:
+        from faster_whisper.utils import download_model
+    except ImportError as exc:
+        raise RuntimeError(f"模型下载失败：Whisper 依赖缺失，请先安装 faster-whisper。\n详情：{exc}") from exc
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    log(f"开始下载 Whisper 模型：{source_model}", log_callback)
+    log(f"Whisper 模型将保存到：{target_dir}", log_callback)
+    download_model(source_model, output_dir=str(target_dir))
+    if not is_valid_model_dir(target_dir):
+        raise RuntimeError("下载完成，但模型目录缺少基本模型文件")
+    log(f"Whisper 模型已下载到本地目录：{target_dir}", log_callback)
+    return str(target_dir)
+
+
 def extract(
     url: str,
     model: str | None,
@@ -474,11 +521,18 @@ def extract(
     log_callback: LogCallback | None = None,
     cookies_from_browser: str | None = None,
     output_dir: str | Path | None = None,
+    model_display_name: str | None = None,
+    model_is_local: bool | None = None,
+    model_download_name: str | None = None,
+    model_download_dir: str | Path | None = None,
 ) -> Path:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    log("获取视频信息", log_callback)
-    info = get_info(url, cookies, ffmpeg_path=ffmpeg_path, cookies_from_browser=cookies_from_browser)
+    log("正在获取视频信息...", log_callback)
+    try:
+        info = get_info(url, cookies, ffmpeg_path=ffmpeg_path, cookies_from_browser=cookies_from_browser)
+    except Exception as exc:
+        raise RuntimeError(f"下载失败：无法获取视频信息。请检查链接是否有效，或稍后重试。\n详情：{exc}") from exc
     title = sanitize_filename(info.get("title") or info.get("id") or "video")
     video_id = sanitize_filename(str(info.get("id") or "video"))
     if output_dir is None:
@@ -488,30 +542,60 @@ def extract(
         text_output_dir.mkdir(parents=True, exist_ok=True)
     output_path = text_output_dir / f"{title}.{video_id}.txt"
 
-    log("查找中文字幕", log_callback)
+    log("正在查找视频自带中文字幕...", log_callback)
     selected = choose_subtitle(info)
     if selected:
         lang, entry, source_name = selected
         ext = (entry.get("ext") or "vtt").lower()
         source_label = "人工字幕" if source_name == "subtitles" else "自动字幕"
-        log(f"找到{source_label}：{lang} / {ext}", log_callback)
+        log(f"已找到视频自带中文字幕：{source_label} {lang} / {ext}，开始下载字幕...", log_callback)
         raw_path = OUTPUT_DIR / f"{title}.{video_id}.{lang}.{ext}"
-        download_subtitle(entry, raw_path)
-        output_path.write_text(subtitle_to_text(raw_path, ext), encoding="utf-8")
-        log(f"已写入文本：{output_path}", log_callback)
+        try:
+            download_subtitle(entry, raw_path)
+            output_path.write_text(subtitle_to_text(raw_path, ext), encoding="utf-8")
+        except Exception as exc:
+            raise RuntimeError(f"保存失败：无法下载或写入字幕文本，请检查输出目录权限。\n详情：{exc}") from exc
+        log(f"字幕文本已保存到：{output_path}", log_callback)
         return output_path
 
-    log("没有可直接下载的中文字幕，改用音频识别", log_callback)
+    log("未找到可用中文字幕，开始下载音频并准备语音识别...", log_callback)
     model_name = (model or "").strip()
     if not model_name:
         raise RuntimeError(MISSING_WHISPER_MODEL_MESSAGE)
 
+    if model_display_name is None:
+        model_display_name = model_download_name or model_name
+    local_model_name = ensure_local_whisper_model(
+        model_name,
+        log_callback=log_callback,
+        download_model_name=model_download_name,
+        download_dir=model_download_dir,
+    )
+    if local_model_name != model_name:
+        model_name = local_model_name
+        model_is_local = True
+
     with tempfile.TemporaryDirectory(prefix="video-text-", dir=str(ROOT)) as temp_dir:
         workdir = Path(temp_dir)
-        audio_path = download_audio(url, workdir, cookies, ffmpeg_path=ffmpeg_path, log_callback=log_callback, cookies_from_browser=cookies_from_browser)
-        text = transcribe_audio(audio_path, model_name, device, compute_type, log_callback=log_callback)
-        output_path.write_text(text, encoding="utf-8")
-        log(f"已写入文本：{output_path}", log_callback)
+        try:
+            audio_path = download_audio(url, workdir, cookies, ffmpeg_path=ffmpeg_path, log_callback=log_callback, cookies_from_browser=cookies_from_browser)
+        except Exception as exc:
+            raise RuntimeError(f"下载失败：无法下载音频。请检查网络、链接或 Cookies 设置。\n详情：{exc}") from exc
+        log("音频下载完成，开始语音识别...", log_callback)
+        text = transcribe_audio(
+            audio_path,
+            model_name,
+            device,
+            compute_type,
+            log_callback=log_callback,
+            model_display_name=model_display_name,
+            model_is_local=model_is_local,
+        )
+        try:
+            output_path.write_text(text, encoding="utf-8")
+        except Exception as exc:
+            raise RuntimeError(f"保存失败：无法写入输出目录，请检查目录权限。\n详情：{exc}") from exc
+        log(f"字幕文本已保存到：{output_path}", log_callback)
         return output_path
 
 

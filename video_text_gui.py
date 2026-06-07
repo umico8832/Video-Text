@@ -50,8 +50,8 @@ from model_config import (
     is_local_model_choice,
     is_preset_model,
     is_valid_model_dir,
+    resolve_model_for_runtime,
     resolve_model_from_settings,
-    resolve_preset_model_for_extract,
     resolve_selected_model,
     scan_deployed_models,
 )
@@ -851,12 +851,10 @@ class AdvancedSettingsDialog(QDialog):
         self.whisper_status_label = self.status_line("语音识别：未检测")
         self.cuda_status_label = self.status_line("GPU 加速：未检测")
         self.whisper_version_label = self.status_line("faster-whisper 版本：未知")
-        self.cuda_detail_label = self.status_line("支持精度：未检测")
         for label in (
             self.whisper_status_label,
             self.cuda_status_label,
             self.whisper_version_label,
-            self.cuda_detail_label,
         ):
             right_layout.addWidget(label)
 
@@ -925,7 +923,7 @@ class AdvancedSettingsDialog(QDialog):
         cookie_options = [
             ("none", "不使用 Cookies（推荐）", "适用于大多数公开视频"),
             ("browser", "从浏览器读取", "自动读取浏览器中的登录状态"),
-            ("file", "使用 cookies.txt 文件", "使用本地 cookies.txt 文件"),
+            ("file", "使用 cookies.txt 文件", "使用本地 cookies.txt 文件；软件只保存文件路径，不读取或展示 Cookies 内容。"),
         ]
         for mode, label, description in cookie_options:
             radio = QRadioButton(label)
@@ -1187,11 +1185,11 @@ class AdvancedSettingsDialog(QDialog):
         elif mode == "browser":
             message = "将尝试从所选浏览器读取登录状态，使用前建议关闭对应浏览器。"
         elif not path:
-            message = "请选择 cookies.txt 文件；取消选择不会改变原路径。"
+            message = "请选择 cookies.txt 文件；软件只保存文件路径，不读取或展示 Cookies 内容。"
         elif Path(path).exists():
-            message = "将使用所选 cookies.txt 文件；请不要上传、分享或提交该文件。"
+            message = "将使用所选 cookies.txt 文件路径；软件不会读取或展示 Cookies 内容，请不要上传、分享或提交该文件。"
         else:
-            message = "当前路径不存在，请确认 cookies.txt 文件位置。"
+            message = "当前路径不存在，请确认 cookies.txt 文件位置；软件只保存路径，不读取或展示内容。"
         self.advanced_cookies_status.setText(message)
 
     def current_advanced_cookie_mode(self) -> str:
@@ -1342,7 +1340,6 @@ class AdvancedSettingsDialog(QDialog):
         self.set_status_label(self.whisper_status_label, f"语音识别：{action}", "pending")
         self.set_status_label(self.cuda_status_label, f"GPU 加速：{action}", "pending")
         self.set_status_label(self.whisper_version_label, "faster-whisper 版本：检测中", "pending")
-        self.set_status_label(self.cuda_detail_label, "支持精度：检测中", "pending")
 
     def update_run_info(self, report: dict | None) -> None:
         if not hasattr(self, "whisper_status_label"):
@@ -1366,16 +1363,6 @@ class AdvancedSettingsDialog(QDialog):
             f"faster-whisper 版本：{whisper.get('version') or '未知'}",
             "unknown",
         )
-        compute_types = cuda.get("compute_types") or []
-        if compute_types:
-            cuda_detail = "支持精度：" + ", ".join(compute_types)
-        elif cuda:
-            cuda_detail = cuda.get("detail") or "未检测到支持精度"
-        else:
-            cuda_detail = "支持精度：未检测"
-        if not str(cuda_detail).startswith("支持精度："):
-            cuda_detail = f"GPU 检测详情：{cuda_detail}"
-        self.set_status_label(self.cuda_detail_label, cuda_detail, "unknown")
 
     def deploy_selected_model(self) -> None:
         if self.thread is not None:
@@ -1386,6 +1373,11 @@ class AdvancedSettingsDialog(QDialog):
             QMessageBox.warning(self, "缺少模型", "请先选择识别模型。")
             return
         model_source = "local" if is_local_model_choice(selected_value) else "preset"
+        if not self.main_window.confirm_model_deploy(model, model_source):
+            self.main_window.append_log_separator()
+            self.main_window.append_log(f"已取消模型部署：{model}")
+            self.advanced_action_status.setText(f"已取消模型部署：{model}")
+            return
         self.main_window.save_settings_now()
         self.main_window.append_log_separator()
         self.main_window.append_log(
@@ -1420,6 +1412,11 @@ class AdvancedSettingsDialog(QDialog):
         self.set_busy(False)
 
     def install_gpu_components(self) -> None:
+        if not self.main_window.confirm_gpu_install():
+            self.main_window.append_log_separator()
+            self.main_window.append_log("已取消 GPU 加速组件安装")
+            self.advanced_action_status.setText("已取消 GPU 加速组件安装。")
+            return
         self.main_window.save_settings_now()
         self.main_window.append_log_separator()
         self.main_window.append_log("开始安装 GPU 加速组件")
@@ -1456,6 +1453,10 @@ class AdvancedSettingsDialog(QDialog):
         self.run_detection()
 
     def update_tools(self) -> None:
+        if not self.main_window.confirm_ytdlp_update():
+            self.main_window.append_log_separator()
+            self.main_window.append_log("已取消更新 yt-dlp")
+            return
         self.main_window.save_settings_now()
         self.main_window.append_log_separator()
         self.main_window.append_log("开始更新 yt-dlp")
@@ -1640,7 +1641,7 @@ class MainWindow(QMainWindow):
         self.output_dir_pick_btn.clicked.connect(self.pick_output_dir)
         self.open_button = QPushButton("打开目录")
         self.decorate_button(self.open_button, QStyle.StandardPixmap.SP_DialogOpenButton)
-        self.open_button.setEnabled(False)
+        self.open_button.setEnabled(True)
 
         self.model_combo = NoWheelComboBox()
         for label, value in get_model_choices(self.deployed_models):
@@ -1823,7 +1824,7 @@ class MainWindow(QMainWindow):
         self.env_detail_label = QLabel("")
         self.env_detail_label.setWordWrap(True)
         self.env_detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.cookie_mode_combo.currentIndexChanged.connect(self.update_cookie_mode_ui)
+        self.cookie_mode_combo.currentIndexChanged.connect(self.handle_cookie_mode_changed)
         self.local_model_label = self.form_label("本地模型目录")
         self.model_info_label = QLabel("")
         self.model_info_label.setWordWrap(True)
@@ -1910,8 +1911,12 @@ class MainWindow(QMainWindow):
         footer_layout.setSpacing(10)
         footer_icon = QLabel()
         footer_icon.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation).pixmap(16, 16))
-        help_label = QLabel("帮助文档")
-        help_label.setStyleSheet("color: #64748b; font-weight: 600;")
+        help_label = QLabel('<a href="help">帮助文档</a>')
+        help_label.setTextFormat(Qt.TextFormat.RichText)
+        help_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        help_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        help_label.setStyleSheet("color: #2563eb; font-weight: 600;")
+        help_label.linkActivated.connect(self.open_help_document)
         self.footer_summary_label = QLabel("")
         self.footer_summary_label.hide()
         self.footer_summary_label.setStyleSheet("color: #64748b; font-weight: 600;")
@@ -1931,15 +1936,15 @@ class MainWindow(QMainWindow):
 
         self.check_button.clicked.connect(lambda: self.run_env_task("check"))
         self.prepare_button.clicked.connect(lambda: self.run_env_task("prepare"))
-        self.update_ytdlp_button.clicked.connect(lambda: self.run_env_task("update_ytdlp"))
-        self.gpu_button.clicked.connect(lambda: self.run_env_task("install_gpu"))
+        self.update_ytdlp_button.clicked.connect(self.update_ytdlp_with_confirmation)
+        self.gpu_button.clicked.connect(self.install_gpu_with_confirmation)
         self.advanced_button.clicked.connect(self.open_advanced_settings)
         self.log_toggle_button.clicked.connect(self.clear_log)
         self.start_button.clicked.connect(self.start_extract)
         self.open_button.clicked.connect(self.open_output_dir)
-        self.model_combo.currentIndexChanged.connect(self.update_model_info)
+        self.model_combo.currentIndexChanged.connect(self.handle_model_changed)
         self.local_model_input.textChanged.connect(self.update_model_info)
-        self.device_combo.currentTextChanged.connect(self.update_model_summary)
+        self.device_combo.currentTextChanged.connect(self.handle_device_changed)
         for widget in [
             self.ffmpeg_input,
             self.ytdlp_input,
@@ -2129,6 +2134,7 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "选择输出目录", current)
         if path:
             self.output_dir_input.setText(path)
+            self.append_log(f"输出目录已设置为：{path}")
 
     def pick_local_model_dir(self) -> None:
         current = self.local_model_input.text().strip() or str(ROOT)
@@ -2138,6 +2144,11 @@ class MainWindow(QMainWindow):
 
     def selected_output_dir(self) -> str:
         return get_selected_output_dir(self.output_dir_input.text())
+
+    def output_dir_path(self) -> Path:
+        value = self.output_dir_input.text().strip() or DEFAULT_OUTPUT_DIR.name
+        path = Path(value)
+        return path if path.is_absolute() else ROOT / path
 
     def toggle_advanced_card(self) -> None:
         self.env_advanced_visible = not self.env_advanced_visible
@@ -2156,6 +2167,97 @@ class MainWindow(QMainWindow):
 
     def clear_log(self) -> None:
         self.log_view.clear()
+
+    def open_help_document(self) -> None:
+        help_path = ROOT / "README.md"
+        if not help_path.is_file():
+            QMessageBox.warning(self, "帮助文档不存在", f"未找到帮助文档：{help_path}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(help_path))):
+            QMessageBox.warning(self, "无法打开帮助文档", f"请手动打开：{help_path}")
+
+    def confirm_model_deploy(self, model_name: str, model_source: str) -> bool:
+        models_dir = self.selected_models_dir()
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Question)
+        message_box.setWindowTitle("确认下载/部署模型")
+        if model_source == "preset":
+            message_box.setText(f"即将下载/部署 Whisper 模型：{model_name}")
+            message_box.setInformativeText(
+                "该操作可能需要联网，并占用一定磁盘空间。\n"
+                f"模型将保存到：{models_dir}\n\n"
+                "是否继续？"
+            )
+        else:
+            message_box.setText(f"即将检查本地 Whisper 模型目录：{model_name}")
+            message_box.setInformativeText(
+                "该操作不会下载模型，只会检查所选目录是否可用。\n\n"
+                "是否继续？"
+            )
+        continue_button = message_box.addButton("继续部署", QMessageBox.ButtonRole.AcceptRole)
+        message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        message_box.exec()
+        return message_box.clickedButton() is continue_button
+
+    def confirm_gpu_install(self) -> bool:
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Question)
+        message_box.setWindowTitle("确认安装 GPU 加速组件")
+        message_box.setText("即将安装 GPU 加速组件。")
+        message_box.setInformativeText(
+            "该操作会安装 NVIDIA CUDA 相关 Python 包，适用于 NVIDIA 显卡用户。\n"
+            "它不会安装显卡驱动，也不会保证所有 CUDA 环境问题都能自动修复。\n"
+            "安装可能耗时，并会修改当前 Python 虚拟环境。\n\n"
+            "是否继续？"
+        )
+        continue_button = message_box.addButton("继续安装", QMessageBox.ButtonRole.AcceptRole)
+        message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        message_box.exec()
+        return message_box.clickedButton() is continue_button
+
+    def confirm_ytdlp_update(self) -> bool:
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Question)
+        message_box.setWindowTitle("确认更新 yt-dlp")
+        message_box.setText("即将更新 yt-dlp 下载组件。")
+        message_box.setInformativeText(
+            "该操作可能需要联网，只会更新 yt-dlp，不会更新 FFmpeg。\n"
+            "如果当前使用的是手动指定的外部 yt-dlp，请确认是否继续。\n\n"
+            "是否继续？"
+        )
+        continue_button = message_box.addButton("继续更新", QMessageBox.ButtonRole.AcceptRole)
+        message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        message_box.exec()
+        return message_box.clickedButton() is continue_button
+
+    def update_ytdlp_with_confirmation(self) -> None:
+        if not self.confirm_ytdlp_update():
+            self.append_log_separator()
+            self.append_log("已取消更新 yt-dlp")
+            return
+        self.run_env_task("update_ytdlp")
+
+    def install_gpu_with_confirmation(self) -> None:
+        if not self.confirm_gpu_install():
+            self.append_log_separator()
+            self.append_log("已取消 GPU 加速组件安装")
+            return
+        self.run_env_task("install_gpu")
+
+    def handle_model_changed(self) -> None:
+        self.update_model_info()
+        if self.loading_settings:
+            return
+        model = self.model_combo.currentData() or "未选择"
+        self.append_log(f"已切换模型：{model}")
+
+    def handle_device_changed(self) -> None:
+        self.update_model_summary()
+        if self.loading_settings:
+            return
+        mode = self.device_combo.currentText()
+        mode_text = {"auto": "自动选择", "cuda": "GPU 加速", "cpu": "CPU 模式"}.get(mode, mode)
+        self.append_log(f"已切换运行方式：{mode_text}")
 
     def update_collapsible_geometry(self, widget: QWidget) -> None:
         layout = widget.layout()
@@ -2266,6 +2368,14 @@ class MainWindow(QMainWindow):
         self.cookies_input.setVisible(is_file)
         self.cookies_pick_btn.setVisible(is_file)
 
+    def handle_cookie_mode_changed(self) -> None:
+        self.update_cookie_mode_ui()
+        if self.loading_settings:
+            return
+        mode = self.cookie_mode_combo.currentData()
+        label = next((item["label"] for item in COOKIE_MODES if item["name"] == mode), mode or "未知")
+        self.append_log(f"Cookies 模式已切换为：{label}")
+
     def load_settings(self) -> None:
         self.loading_settings = True
         try:
@@ -2347,19 +2457,21 @@ class MainWindow(QMainWindow):
             return "环境未就绪，请检查配置"
         if "获取视频信息" in message:
             return "正在获取视频信息"
-        if "查找中文字幕" in message:
+        if "查找视频自带中文字幕" in message:
             return "正在查找已有中文字幕"
-        if "找到" in message and "字幕" in message:
+        if "已找到视频自带中文字幕" in message:
             return "正在下载字幕"
-        if "没有可直接下载的中文字幕" in message:
+        if "未找到可用中文字幕" in message:
             return "正在准备语音识别"
         if "下载音频" in message or "音频下载完成" in message:
             return "正在下载音频"
-        if "正在下载/加载 Whisper 模型" in message:
+        if "正在加载本地 Whisper 模型" in message or "开始下载 Whisper 模型" in message:
             return "正在加载识别模型"
-        if "开始中文语音识别" in message or "识别进度" in message:
+        if "已取消：未下载 Whisper 模型" in message:
+            return "已取消"
+        if "正在识别音频内容" in message or "识别进度" in message:
             return "正在语音识别"
-        if "已写入文本" in message:
+        if "字幕文本已保存到" in message:
             return "正在保存结果"
         return None
 
@@ -2384,6 +2496,7 @@ class MainWindow(QMainWindow):
         self.gpu_button.setEnabled(not busy)
         self.deploy_model_button.setEnabled(not busy)
         self.start_button.setEnabled(not busy and self.env_ready)
+        self.open_button.setEnabled(not busy)
         self.progress.setVisible(busy)
 
     def run_env_task(self, action: str, autosave: bool = True) -> None:
@@ -2451,17 +2564,44 @@ class MainWindow(QMainWindow):
         if not url:
             QMessageBox.warning(self, "缺少链接", "请先输入视频链接。")
             return
-        model = self.selected_model_value()
-        if is_local_model_choice(self.model_combo.currentData()) and not model:
-            QMessageBox.warning(self, "缺少模型", "请选择本地模型目录。")
+        selected_value = self.model_combo.currentData()
+        runtime_model = resolve_model_for_runtime(
+            selected_value,
+            self.local_model_input.text(),
+            self.selected_models_dir(),
+        )
+        if runtime_model.error_message:
+            QMessageBox.warning(self, "模型不可用", runtime_model.error_message)
+            self.append_log_separator()
+            self.append_log(runtime_model.error_message)
             return
-        if is_preset_model(model):
-            model = resolve_preset_model_for_extract(model, self.selected_models_dir())
+        prompt_logged = False
+        if runtime_model.requires_download:
+            self.append_log_separator()
+            self.append_log(f"未检测到本地 Whisper 模型：{runtime_model.display_name}")
+            prompt_logged = True
+            message_box = QMessageBox(self)
+            message_box.setIcon(QMessageBox.Icon.Question)
+            message_box.setWindowTitle("需要下载 Whisper 模型")
+            message_box.setText(f"当前未检测到本地 Whisper 模型：{runtime_model.display_name}。")
+            message_box.setInformativeText(
+                "继续识别需要下载该模型，可能占用一定时间和磁盘空间。\n是否现在下载并继续？"
+            )
+            download_button = message_box.addButton("下载并继续", QMessageBox.ButtonRole.AcceptRole)
+            message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+            message_box.exec()
+            if message_box.clickedButton() is not download_button:
+                self.append_log("已取消：未下载 Whisper 模型，识别任务未开始。")
+                self.set_status("已取消")
+                self.refresh_buttons(False)
+                return
+            self.append_log(f"用户已确认下载，开始下载 Whisper 模型：{runtime_model.display_name}")
+            self.append_log(f"Whisper 模型将保存到本地目录：{runtime_model.download_dir}")
         self.save_settings_now()
         self.set_status("正在启动字幕提取")
         self.output_path = ""
-        self.open_button.setEnabled(False)
-        self.append_log_separator()
+        if not prompt_logged:
+            self.append_log_separator()
         self.append_log("启动字幕获取工作流")
         self.set_status("正在启动字幕提取")
         self.refresh_buttons(True)
@@ -2481,13 +2621,17 @@ class MainWindow(QMainWindow):
         self.thread = QThread()
         self.worker = ExtractWorker(
             url=url,
-            model=model,
+            model=runtime_model.model,
             device=self.device_combo.currentText(),
             cookies=cookies,
             ffmpeg=self.ffmpeg_input.text(),
             yt_dlp=self.ytdlp_input.text(),
             cookies_from_browser=cookies_from_browser,
             output_dir=self.selected_output_dir(),
+            model_display_name=runtime_model.display_name,
+            model_is_local=runtime_model.is_local,
+            model_download_name=runtime_model.download_model,
+            model_download_dir=runtime_model.download_dir,
         )
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
@@ -2507,6 +2651,10 @@ class MainWindow(QMainWindow):
             return
 
         model_source = "local" if is_local_model_choice(selected_value) else "preset"
+        if not self.confirm_model_deploy(model, model_source):
+            self.append_log_separator()
+            self.append_log(f"已取消模型部署：{model}")
+            return
         self.save_settings_now()
         self.append_log_separator()
         self.append_log(
@@ -2540,20 +2688,23 @@ class MainWindow(QMainWindow):
         if ok:
             self.output_path = message
             self.set_status(f"提取完成：{message}")
-            self.open_button.setEnabled(True)
-            self.append_log("字幕文件获取完成")
+            self.append_log(f"提取完成，字幕文本已保存到：{message}")
         else:
             if "未找到可用字幕" in message and "识别模型" in message:
                 self.set_status(f"{MISSING_WHISPER_MODEL_MESSAGE}可展开运行日志查看详情")
             else:
                 self.set_status(f"提取失败：{message}。可展开运行日志查看详情")
-            self.append_log("字幕文件获取失败")
+            self.append_log(f"提取失败：{message}")
         self.refresh_buttons(False)
 
     def open_output_dir(self) -> None:
-        path = Path(self.output_path)
-        if path.exists():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+        path = self.output_dir_path()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.warning(self, "无法打开目录", f"输出目录不可用：{exc}")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def closeEvent(self, event) -> None:
         if self.settings_save_timer.isActive():

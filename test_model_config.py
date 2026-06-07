@@ -8,6 +8,7 @@ from model_config import (
     get_model_choices,
     get_model_settings_fields,
     is_valid_model_dir,
+    resolve_model_for_runtime,
     resolve_model_from_settings,
     resolve_preset_model_for_extract,
     scan_deployed_models,
@@ -73,6 +74,46 @@ class ModelConfigTest(unittest.TestCase):
                 resolve_preset_model_for_extract("tiny", models_dir),
                 "tiny",
             )
+
+    def test_runtime_selection_detects_deployed_preset(self):
+        with TemporaryDirectory() as directory:
+            models_dir = Path(directory)
+            model_dir = models_dir / "small"
+            self.create_valid_model(model_dir)
+            result = resolve_model_for_runtime("small", models_dir=models_dir)
+            self.assertEqual(result.model, str(model_dir))
+            self.assertEqual(result.display_name, "small")
+            self.assertTrue(result.is_local)
+            self.assertFalse(result.requires_download)
+            self.assertEqual(result.error_message, "")
+
+    def test_runtime_selection_requires_download_for_missing_preset(self):
+        with TemporaryDirectory() as directory:
+            result = resolve_model_for_runtime("small", models_dir=directory)
+            self.assertEqual(result.model, str(Path(directory) / "small"))
+            self.assertEqual(result.display_name, "small")
+            self.assertTrue(result.is_local)
+            self.assertTrue(result.requires_download)
+            self.assertEqual(result.download_model, "small")
+            self.assertEqual(result.download_dir, str(Path(directory) / "small"))
+            self.assertEqual(result.error_message, "")
+
+    def test_runtime_selection_rejects_invalid_local_model(self):
+        with TemporaryDirectory() as directory:
+            result = resolve_model_for_runtime(LOCAL_MODEL_VALUE, directory)
+            self.assertEqual(result.model, directory)
+            self.assertFalse(result.requires_download)
+            self.assertIn("缺少基本模型文件", result.error_message)
+
+    def test_runtime_selection_accepts_valid_local_model(self):
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "local-model"
+            self.create_valid_model(model_dir)
+            result = resolve_model_for_runtime(LOCAL_MODEL_VALUE, str(model_dir))
+            self.assertEqual(result.model, str(model_dir))
+            self.assertTrue(result.is_local)
+            self.assertFalse(result.requires_download)
+            self.assertEqual(result.error_message, "")
 
 
 class ModelDeployWorkerTest(unittest.TestCase):

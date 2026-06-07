@@ -172,7 +172,7 @@ ENGLISH_ONLY_MODELS = [
 ]
 OFFICIAL_MODELS = UNIVERSAL_MODELS + ENGLISH_ONLY_MODELS
 MODEL_CHOICES = (
-    [("请选择识别模型（不会自动下载）", MODEL_PLACEHOLDER)]
+    [("请选择识别模型（需手动确认下载）", MODEL_PLACEHOLDER)]
     + [(name, name) for name in UNIVERSAL_MODELS]
     + [(f"{name}（英文专用）", name) for name in ENGLISH_ONLY_MODELS]
     + [(LOCAL_MODEL_LABEL, LOCAL_MODEL_VALUE)]
@@ -184,6 +184,17 @@ MODELS = OFFICIAL_MODELS
 class ModelSelection:
     selected_value: str
     local_value: str = ""
+
+
+@dataclass(frozen=True)
+class ModelRuntimeSelection:
+    model: str
+    display_name: str
+    is_local: bool
+    requires_download: bool
+    error_message: str = ""
+    download_model: str = ""
+    download_dir: str = ""
 
 
 def normalize_model_value(model: str | None) -> str:
@@ -275,6 +286,50 @@ def resolve_preset_model_for_extract(
     if is_valid_model_dir(local_dir):
         return str(local_dir)
     return model_value
+
+
+def resolve_model_for_runtime(
+    selected_value: str | None,
+    local_value: str | None = None,
+    models_dir: str | Path | None = None,
+) -> ModelRuntimeSelection:
+    if is_local_model_choice(selected_value):
+        model = normalize_model_value(local_value)
+        if not model:
+            return ModelRuntimeSelection("", "", False, False, "请选择本地模型目录。")
+        if is_valid_model_dir(model):
+            return ModelRuntimeSelection(model, model, True, False)
+        if Path(model).is_dir():
+            return ModelRuntimeSelection(
+                model,
+                model,
+                False,
+                False,
+                "本地模型目录缺少基本模型文件。",
+            )
+        return ModelRuntimeSelection(model, model, False, False, "本地模型目录不存在。")
+
+    model = normalize_model_value(selected_value)
+    if not model:
+        return ModelRuntimeSelection("", "", False, False, MISSING_WHISPER_MODEL_MESSAGE)
+    if is_preset_model(model):
+        local_dir = get_official_model_dir(model, models_dir)
+        if is_valid_model_dir(local_dir):
+            return ModelRuntimeSelection(str(local_dir), model, True, False)
+        return ModelRuntimeSelection(
+            str(local_dir),
+            model,
+            True,
+            True,
+            download_model=model,
+            download_dir=str(local_dir),
+        )
+
+    if is_valid_model_dir(model):
+        return ModelRuntimeSelection(model, model, True, False)
+    if Path(model).exists():
+        return ModelRuntimeSelection(model, model, False, False, "本地模型目录不可用。")
+    return ModelRuntimeSelection(model, model, False, True)
 
 
 def get_model_description(

@@ -51,7 +51,7 @@ class EnvWorker(QObject):
             ok = all(report.get(name, {}).get("ok") for name in REQUIRED_ENV_KEYS)
             self.done.emit(ok, report)
         except Exception as exc:
-            self.log.emit(f"环境准备失败：{exc}")
+            self.log.emit(f"环境任务失败：请检查当前 Python 环境或网络连接。\n详情：{exc}")
             self.done.emit(False, {})
 
     def check(self) -> dict:
@@ -66,11 +66,11 @@ class EnvWorker(QObject):
             ensure_ffmpeg_link()
 
     def update_ytdlp(self) -> None:
-        self.log.emit("开始更新 yt-dlp")
+        self.log.emit("开始更新 yt-dlp 下载组件")
         run_command_with_log(install_command("yt-dlp", upgrade=True), self.log.emit)
 
     def install_gpu(self) -> None:
-        self.log.emit("开始安装 GPU 加速组件")
+        self.log.emit("开始安装 NVIDIA CUDA 相关 Python 组件")
         run_command_with_log(install_command(*GPU_PACKAGES), self.log.emit)
 
 
@@ -88,6 +88,10 @@ class ExtractWorker(QObject):
         yt_dlp: str,
         cookies_from_browser: str | None = None,
         output_dir: str = "",
+        model_display_name: str | None = None,
+        model_is_local: bool | None = None,
+        model_download_name: str | None = None,
+        model_download_dir: str | None = None,
     ):
         super().__init__()
         self.url = url
@@ -98,6 +102,10 @@ class ExtractWorker(QObject):
         self.yt_dlp = yt_dlp.strip() or None
         self.cookies_from_browser = cookies_from_browser
         self.output_dir = output_dir.strip() or None
+        self.model_display_name = model_display_name
+        self.model_is_local = model_is_local
+        self.model_download_name = model_download_name
+        self.model_download_dir = model_download_dir
 
     def run(self) -> None:
         try:
@@ -113,10 +121,14 @@ class ExtractWorker(QObject):
                 log_callback=self.log.emit,
                 cookies_from_browser=self.cookies_from_browser,
                 output_dir=self.output_dir,
+                model_display_name=self.model_display_name,
+                model_is_local=self.model_is_local,
+                model_download_name=self.model_download_name,
+                model_download_dir=self.model_download_dir,
             )
             self.done.emit(True, str(result))
         except Exception as exc:
-            self.log.emit(f"任务失败：{exc}")
+            self.log.emit(f"提取失败：字幕获取流程未完成。\n详情：{exc}")
             self.done.emit(False, str(exc))
 
 
