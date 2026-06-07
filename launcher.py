@@ -31,16 +31,40 @@ REQ_STAMP = VENV_DIR / REQ_STAMP_NAME
 
 
 def log(message: str) -> None:
-    print(message, flush=True)
+    if getattr(sys, "stdout", None) is not None:
+        print(message, flush=True)
     with LOG_PATH.open("a", encoding="utf-8") as file:
         file.write(message + "\n")
 
 
+def configure_stdio() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+def subprocess_hidden_kwargs() -> dict:
+    if os.name != "nt":
+        return {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    return {"startupinfo": startupinfo}
+
+
 def pause_on_failure() -> None:
     if os.name == "nt":
+        if getattr(sys, "stdin", None) is None:
+            return
         try:
             input("\n按回车键退出...")
-        except EOFError:
+        except (EOFError, RuntimeError):
             pass
 
 
@@ -55,6 +79,7 @@ def run(cmd: list[str], *, cwd: Path = ROOT) -> None:
         encoding="utf-8",
         errors="replace",
         bufsize=1,
+        **subprocess_hidden_kwargs(),
     )
     assert process.stdout is not None
     for line in process.stdout:
@@ -80,6 +105,7 @@ def python_version_ok(cmd: list[str]) -> bool:
             encoding="utf-8",
             errors="replace",
             check=False,
+            **subprocess_hidden_kwargs(),
         )
         return result.returncode == 0 and result.stdout.strip() == PYTHON_VERSION
     except OSError:
@@ -133,18 +159,19 @@ def start_gui() -> None:
         raise RuntimeError(f"缺少 GUI 入口文件：{GUI_SCRIPT}")
     python_for_gui = VENV_PYTHONW if VENV_PYTHONW.exists() else VENV_PYTHON
     log(f"启动 {APP_NAME}")
+    gui_log = LOG_PATH.open("a", encoding="utf-8")
     subprocess.Popen(
         [str(python_for_gui), str(GUI_SCRIPT)],
         cwd=str(ROOT),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=gui_log,
+        stderr=subprocess.STDOUT,
         close_fds=True,
+        **subprocess_hidden_kwargs(),
     )
 
 
 def main() -> int:
-    if os.name == "nt":
-        os.system("chcp 65001 >nul")
+    configure_stdio()
     LOG_PATH.write_text("", encoding="utf-8")
     log(f"{APP_NAME} 启动器")
     log(f"项目目录：{ROOT}")

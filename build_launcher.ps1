@@ -36,7 +36,7 @@ if (-not (Test-Path $buildPython)) {
 }
 
 & $buildPython -m pip install --upgrade pip pyinstaller
-& $buildPython -m PyInstaller --onefile --console --name "VideoTextLauncher" launcher.py
+& $buildPython -m PyInstaller --onefile --windowed --name "VideoTextLauncher" launcher.py
 
 $sourceExe = Join-Path $root "dist\VideoTextLauncher.exe"
 $targetName = [string]::Concat(
