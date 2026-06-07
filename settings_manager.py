@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from model_config import get_model_settings_fields
+from model_config import MODELS_DIR, get_model_settings_fields
 
 
 ROOT = Path(__file__).resolve().parent
 SETTINGS_FILE = ROOT / "settings.json"
 DEFAULT_OUTPUT_DIR = ROOT / "outputs"
+DEFAULT_MODEL_DIR = MODELS_DIR
 
 
 def default_settings() -> dict:
@@ -18,6 +19,7 @@ def default_settings() -> dict:
         "yt_dlp": "",
         "cookies": "",
         "output_dir": DEFAULT_OUTPUT_DIR.name,
+        "model_dir": DEFAULT_MODEL_DIR.name,
         "device": "auto",
         "cookie_mode": "none",
         "cookies_browser": "chrome",
@@ -69,6 +71,11 @@ def selected_output_dir(value: str | None) -> str:
     return value
 
 
+def normalize_model_dir(value: str | None) -> str:
+    text = str(value or "").strip()
+    return text or DEFAULT_MODEL_DIR.name
+
+
 def build_settings_payload(values: dict) -> dict:
     settings = {
         "url": str(values.get("url", "")).strip(),
@@ -76,6 +83,7 @@ def build_settings_payload(values: dict) -> dict:
         "yt_dlp": str(values.get("yt_dlp", "")).strip(),
         "cookies": str(values.get("cookies", "")).strip(),
         "output_dir": str(values.get("output_dir", "")).strip(),
+        "model_dir": normalize_model_dir(values.get("model_dir")),
         "device": values.get("device", "auto"),
         "cookie_mode": values.get("cookie_mode", "none"),
         "cookies_browser": values.get("cookies_browser", "chrome"),

@@ -45,7 +45,6 @@ from env_checker import (
 )
 from model_config import (
     MISSING_WHISPER_MODEL_MESSAGE,
-    MODELS_DIR,
     get_model_choices,
     get_model_description,
     is_local_model_choice,
@@ -57,9 +56,11 @@ from model_config import (
     scan_deployed_models,
 )
 from settings_manager import (
+    DEFAULT_MODEL_DIR,
     DEFAULT_OUTPUT_DIR,
     build_settings_payload,
     load_settings as read_settings,
+    normalize_model_dir,
     save_settings as write_settings,
     selected_output_dir as get_selected_output_dir,
 )
@@ -761,18 +762,22 @@ class AdvancedSettingsDialog(QDialog):
         self.advanced_device_combo.currentIndexChanged.connect(self.advanced_device_changed)
         left_layout.addWidget(self.form_row("运行方式", self.advanced_device_combo))
 
-        self.model_dir_value = QLabel()
-        self.model_dir_value.setWordWrap(True)
-        self.model_dir_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.model_dir_value.setStyleSheet("""
-            color: #334155;
-            background: #f9fbfd;
-            border: 1px solid #e1e7ef;
-            border-radius: 7px;
-            padding: 9px 10px;
-            font-weight: 400;
-        """)
-        left_layout.addWidget(self.form_row("模型存放位置", self.model_dir_value))
+        model_dir_layout = QHBoxLayout()
+        model_dir_layout.setContentsMargins(0, 0, 0, 0)
+        model_dir_layout.setSpacing(8)
+        self.model_dir_input = QLineEdit()
+        self.model_dir_input.setPlaceholderText(DEFAULT_MODEL_DIR.name)
+        self.model_dir_input.setText(self.main_window.model_dir)
+        self.model_dir_input.textChanged.connect(self.model_dir_changed)
+        self.model_dir_button = QPushButton("浏览")
+        self.model_dir_button.setObjectName("smallSecondaryButton")
+        self.model_dir_button.clicked.connect(self.pick_model_dir)
+        model_dir_layout.addWidget(self.model_dir_input, 1)
+        model_dir_layout.addWidget(self.model_dir_button)
+        model_dir_widget = QWidget()
+        model_dir_widget.setStyleSheet("background: transparent;")
+        model_dir_widget.setLayout(model_dir_layout)
+        left_layout.addWidget(self.form_row("模型存放位置", model_dir_widget))
 
         self.advanced_local_model_label = QLabel("本地模型目录")
         self.advanced_local_model_label.setStyleSheet("color: #475569; font-weight: 700;")
@@ -1219,6 +1224,7 @@ class AdvancedSettingsDialog(QDialog):
             selected_value = self.main_window.model_combo.currentData()
             self.populate_advanced_model_combo(selected_value)
             self.advanced_local_model_input.setText(self.main_window.local_model_input.text())
+            self.model_dir_input.setText(self.main_window.model_dir)
             device = self.main_window.device_combo.currentText()
             index = self.advanced_device_combo.findData(device)
             self.advanced_device_combo.setCurrentIndex(index if index >= 0 else 0)
@@ -1271,14 +1277,27 @@ class AdvancedSettingsDialog(QDialog):
         if path:
             self.advanced_local_model_input.setText(path)
 
+    def model_dir_changed(self) -> None:
+        if self.syncing_model_run:
+            return
+        self.main_window.set_model_dir(self.model_dir_input.text(), save=True)
+        self.populate_advanced_model_combo(self.main_window.model_combo.currentData())
+        self.update_model_run_controls()
+
+    def pick_model_dir(self) -> None:
+        current = self.model_dir_input.text().strip() or str(DEFAULT_MODEL_DIR)
+        path = QFileDialog.getExistingDirectory(self, "选择模型下载目录", current)
+        if path:
+            self.model_dir_input.setText(path)
+
     def update_model_run_controls(self) -> None:
         if not hasattr(self, "advanced_model_combo"):
             return
         selected_value = self.advanced_model_combo.currentData()
         is_local = is_local_model_choice(selected_value)
         self.advanced_local_model_row.setVisible(is_local)
-        self.model_dir_value.setText(str(MODELS_DIR))
-        self.model_dir_value.setToolTip(str(MODELS_DIR))
+        model_dir = self.main_window.selected_models_dir()
+        self.model_dir_input.setToolTip(model_dir)
         self.advanced_model_info.setPlainText(
             get_model_description(selected_value, cuda_ok=self.main_window.cuda_ok)
         )
@@ -1378,7 +1397,7 @@ class AdvancedSettingsDialog(QDialog):
         self.advanced_action_status.setText("正在部署模型，请稍候。" if model_source == "preset" else "正在检查本地模型目录。")
         self.set_busy(True)
         self.thread = QThread()
-        self.worker = ModelDeployWorker(model_source, model)
+        self.worker = ModelDeployWorker(model_source, model, self.main_window.selected_models_dir())
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.done.connect(self.model_deploy_done)
@@ -1514,7 +1533,8 @@ class MainWindow(QMainWindow):
         self.output_path = ""
         self.loading_settings = False
         self.env_task_autosave = True
-        self.deployed_models = scan_deployed_models()
+        self.model_dir = normalize_model_dir(self.settings.get("model_dir"))
+        self.deployed_models = scan_deployed_models(self.selected_models_dir())
         self.settings_save_timer = QTimer(self)
         self.settings_save_timer.setSingleShot(True)
         self.settings_save_timer.setInterval(1000)
@@ -2223,7 +2243,7 @@ class MainWindow(QMainWindow):
     def refresh_model_choices(self) -> None:
         selected_value = self.model_combo.currentData()
         local_value = self.local_model_input.text()
-        self.deployed_models = scan_deployed_models()
+        self.deployed_models = scan_deployed_models(self.selected_models_dir())
         self.loading_settings = True
         try:
             self.model_combo.clear()
@@ -2275,6 +2295,21 @@ class MainWindow(QMainWindow):
     def selected_model_value(self) -> str:
         return resolve_selected_model(self.model_combo.currentData(), self.local_model_input.text())
 
+    def selected_models_dir(self) -> str:
+        value = normalize_model_dir(self.model_dir)
+        path = Path(value)
+        if path.is_absolute():
+            return str(path)
+        return str((ROOT / path).resolve())
+
+    def set_model_dir(self, value: str | None, save: bool = False) -> None:
+        self.model_dir = normalize_model_dir(value)
+        self.deployed_models = scan_deployed_models(self.selected_models_dir())
+        self.refresh_model_choices()
+        self.update_model_summary()
+        if save:
+            self.save_settings_now()
+
     def schedule_save_settings(self) -> None:
         if self.loading_settings:
             return
@@ -2290,6 +2325,7 @@ class MainWindow(QMainWindow):
             "yt_dlp": self.ytdlp_input.text().strip(),
             "cookies": self.cookies_input.text().strip(),
             "output_dir": self.output_dir_input.text().strip(),
+            "model_dir": self.model_dir,
             "device": self.device_combo.currentText(),
             "cookie_mode": self.cookie_mode_combo.currentData(),
             "cookies_browser": COOKIE_BROWSERS[self.cookie_browser_combo.currentIndex()],
@@ -2420,7 +2456,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "缺少模型", "请选择本地模型目录。")
             return
         if is_preset_model(model):
-            model = resolve_preset_model_for_extract(model)
+            model = resolve_preset_model_for_extract(model, self.selected_models_dir())
         self.save_settings_now()
         self.set_status("正在启动字幕提取")
         self.output_path = ""
@@ -2481,7 +2517,7 @@ class MainWindow(QMainWindow):
         self.set_status("正在部署模型" if model_source == "preset" else "正在检查本地模型目录")
         self.refresh_buttons(True)
         self.thread = QThread()
-        self.worker = ModelDeployWorker(model_source, model)
+        self.worker = ModelDeployWorker(model_source, model, self.selected_models_dir())
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.done.connect(self.model_deploy_done)

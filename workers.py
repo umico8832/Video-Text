@@ -123,10 +123,11 @@ class ExtractWorker(QObject):
 class ModelDeployWorker(QObject):
     done = Signal(bool, str)
 
-    def __init__(self, model_source: str, model: str):
+    def __init__(self, model_source: str, model: str, models_dir: str | Path | None = None):
         super().__init__()
         self.model_source = model_source
         self.model = model.strip()
+        self.models_dir = Path(models_dir) if models_dir else None
 
     def run(self) -> None:
         try:
@@ -145,7 +146,7 @@ class ModelDeployWorker(QObject):
 
             from faster_whisper.utils import download_model
 
-            model_dir = get_official_model_dir(self.model)
+            model_dir = get_official_model_dir(self.model, self.models_dir)
             model_dir.mkdir(parents=True, exist_ok=True)
             download_model(self.model, output_dir=str(model_dir))
             if not is_valid_model_dir(model_dir):

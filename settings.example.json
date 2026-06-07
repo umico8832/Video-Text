@@ -4,6 +4,7 @@
   "yt_dlp": "",
   "cookies": "",
   "output_dir": "outputs",
+  "model_dir": "models",
   "model_source": "preset",
   "model": "large-v3",
   "device": "auto",

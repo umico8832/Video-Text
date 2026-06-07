@@ -81,9 +81,9 @@ class ModelDeployWorkerTest(unittest.TestCase):
         for name in ("config.json", "model.bin", "tokenizer.json"):
             (directory / name).write_text("test", encoding="utf-8")
 
-    def run_worker(self, source, model):
+    def run_worker(self, source, model, models_dir=None):
         results = []
-        worker = ModelDeployWorker(source, model)
+        worker = ModelDeployWorker(source, model, models_dir)
         worker.done.connect(lambda ok, message: results.append((ok, message)))
         worker.run()
         return results
@@ -122,6 +122,19 @@ class ModelDeployWorkerTest(unittest.TestCase):
             )
             self.assertEqual(
                 self.run_worker("preset", "small"),
+                [(True, "已部署")],
+            )
+            download_model.assert_called_once_with("small", output_dir=str(model_dir))
+
+    @patch("faster_whisper.utils.download_model")
+    def test_preset_download_uses_custom_model_directory(self, download_model):
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "small"
+            download_model.side_effect = lambda *args, **kwargs: self.create_valid_model(
+                Path(kwargs["output_dir"])
+            )
+            self.assertEqual(
+                self.run_worker("preset", "small", directory),
                 [(True, "已部署")],
             )
             download_model.assert_called_once_with("small", output_dir=str(model_dir))
