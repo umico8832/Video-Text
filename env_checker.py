@@ -200,14 +200,15 @@ def check_imageio_ffmpeg() -> dict:
 
 def check_cuda_support() -> dict:
     cuda_ok = False
+    compute_types: list[str] = []
     cuda_detail = "未检测到可用 CUDA，将使用 CPU 或按需安装 GPU 加速组件"
     try:
         import ctranslate2
 
-        compute_types = ctranslate2.get_supported_compute_types("cuda")
+        compute_types = sorted(ctranslate2.get_supported_compute_types("cuda"))
         cuda_ok = bool(compute_types)
         if cuda_ok:
-            cuda_detail = "可用：" + ", ".join(sorted(compute_types))
+            cuda_detail = "支持精度：" + ", ".join(compute_types)
     except Exception as exc:
         cuda_detail = f"不可用：{exc}"
 
@@ -219,6 +220,8 @@ def check_cuda_support() -> dict:
         "path": "可选 GPU 加速",
         "source": "已安装 GPU 组件" if gpu_packages_ok else "未安装 GPU 组件",
         "detail": cuda_detail,
+        "compute_types": compute_types,
+        "gpu_packages_ok": gpu_packages_ok,
         "optional": True,
     }
 
