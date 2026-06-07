@@ -18,6 +18,16 @@ IS_WINDOWS = platform.system() == "Windows"
 LogCallback = Callable[[str], None]
 
 
+def subprocess_hidden_kwargs() -> dict:
+    if not IS_WINDOWS:
+        return {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    return {"startupinfo": startupinfo}
+
+
 def path_exists(value: str | None) -> bool:
     return bool(value and value.strip()) and Path(value.strip()).exists()
 
@@ -85,6 +95,7 @@ def command_version(path_or_command: str, timeout: int = 5) -> str:
             text=True,
             timeout=timeout,
             check=False,
+            **subprocess_hidden_kwargs(),
         )
     except Exception:
         return ""
@@ -103,6 +114,7 @@ def ytdlp_version(path_or_command: str, timeout: int = 5) -> str:
             text=True,
             timeout=timeout,
             check=False,
+            **subprocess_hidden_kwargs(),
         )
     except Exception:
         return ""
@@ -299,6 +311,7 @@ def run_command_with_log(cmd: list[str], log: LogCallback, cwd: Path = ROOT) -> 
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        **subprocess_hidden_kwargs(),
     )
     assert process.stdout is not None
     for line in process.stdout:

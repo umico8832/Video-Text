@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListView,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
@@ -211,6 +214,201 @@ class ClickablePathBox(QFrame):
             Qt.TextElideMode.ElideMiddle,
             max(80, self.path_label.width()),
         ))
+
+
+class QuickConfigCard(QFrame):
+    clicked = Signal()
+
+    def __init__(self, clickable: bool = False):
+        super().__init__()
+        self.clickable = clickable
+        self.setObjectName("statusCard")
+        self.setMinimumHeight(74)
+        if clickable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.apply_style()
+
+    def apply_style(self) -> None:
+        hover = """
+            QFrame#statusCard:hover {
+                background: #f8fbff;
+                border-color: #bfdbfe;
+            }
+        """ if self.clickable else ""
+        self.setStyleSheet(f"""
+            QFrame#statusCard {{
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+            }}
+            {hover}
+        """)
+
+    def mousePressEvent(self, event) -> None:
+        if self.clickable and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if self.clickable and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+            return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            self.clickable
+            and event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.clicked.emit()
+            return True
+        return super().eventFilter(watched, event)
+
+    def add_click_target(self, widget: QWidget) -> None:
+        if self.clickable:
+            widget.setCursor(Qt.CursorShape.PointingHandCursor)
+            widget.installEventFilter(self)
+
+
+class ModelPickerDialog(QDialog):
+    def __init__(self, parent: QWidget, choices: list[tuple[str, str]], selected_value: str | None):
+        super().__init__(parent)
+        self.choices = [(label, value) for label, value in choices if value]
+        self.selected_value = selected_value or ""
+        self.setWindowTitle("选择 Whisper 模型")
+        self.resize(460, 520)
+        self.build_ui()
+        self.populate_list()
+
+    def build_ui(self) -> None:
+        self.setStyleSheet("""
+            QDialog {
+                background: #ffffff;
+                color: #172033;
+            }
+            QLabel {
+                color: #172033;
+                background: transparent;
+            }
+            QLineEdit {
+                min-height: 26px;
+                background: #ffffff;
+                color: #172033;
+                border: 1px solid #d8dee8;
+                border-radius: 7px;
+                padding: 8px 11px;
+                selection-background-color: #2563eb;
+            }
+            QLineEdit:focus {
+                border-color: #2563eb;
+            }
+            QListWidget {
+                background: #ffffff;
+                color: #172033;
+                border: 1px solid #e2e8f0;
+                border-radius: 7px;
+                outline: none;
+            }
+            QListWidget::item {
+                min-height: 30px;
+                padding: 8px 10px;
+                border-bottom: 1px solid #f1f5f9;
+            }
+            QListWidget::item:hover {
+                background: #f3f6fa;
+            }
+            QListWidget::item:selected {
+                background: #eaf2ff;
+                color: #172033;
+            }
+            QPushButton {
+                min-height: 24px;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 7px;
+                padding: 8px 14px;
+                font-weight: 600;
+                color: #172033;
+            }
+            QPushButton:hover {
+                background: #f3f6fa;
+                border-color: #a9b6c7;
+            }
+            QPushButton#primaryButton {
+                color: #ffffff;
+                background: #2563eb;
+                border-color: #2563eb;
+            }
+            QPushButton#primaryButton:hover {
+                background: #1d4ed8;
+                border-color: #1d4ed8;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 16)
+        layout.setSpacing(12)
+
+        title = QLabel("选择模型")
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #172033;")
+        layout.addWidget(title)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索模型名，例如 small、large、.en")
+        self.search_input.textChanged.connect(self.populate_list)
+        layout.addWidget(self.search_input)
+
+        self.list_widget = QListWidget()
+        self.list_widget.itemActivated.connect(self.accept_current_item)
+        self.list_widget.currentItemChanged.connect(self.update_accept_button)
+        layout.addWidget(self.list_widget, 1)
+
+        hint = QLabel("中文内容请选择通用模型；英文内容可选择 .en 英文专用模型。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #64748b; font-weight: 400;")
+        layout.addWidget(hint)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel_button = QPushButton("取消")
+        cancel_button.clicked.connect(self.reject)
+        self.accept_button = QPushButton("选择")
+        self.accept_button.setObjectName("primaryButton")
+        self.accept_button.clicked.connect(self.accept_current_item)
+        buttons.addWidget(cancel_button)
+        buttons.addWidget(self.accept_button)
+        layout.addLayout(buttons)
+
+    def populate_list(self) -> None:
+        keyword = self.search_input.text().strip().lower()
+        current_value = self.current_value() or self.selected_value
+        self.list_widget.clear()
+        for label, value in self.choices:
+            haystack = f"{label} {value}".lower()
+            if keyword and keyword not in haystack:
+                continue
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, value)
+            item.setToolTip(value)
+            self.list_widget.addItem(item)
+            if value == current_value:
+                self.list_widget.setCurrentItem(item)
+        if self.list_widget.count() and self.list_widget.currentRow() < 0:
+            self.list_widget.setCurrentRow(0)
+        self.update_accept_button()
+
+    def current_value(self) -> str:
+        item = self.list_widget.currentItem()
+        return item.data(Qt.ItemDataRole.UserRole) if item else ""
+
+    def accept_current_item(self) -> None:
+        if self.current_value():
+            self.selected_value = self.current_value()
+            self.accept()
+
+    def update_accept_button(self) -> None:
+        self.accept_button.setEnabled(bool(self.current_value()))
 
 
 class ToolStatusCard(QFrame):
@@ -1459,7 +1657,7 @@ class MainWindow(QMainWindow):
         title_font.setWeight(QFont.Weight.Bold)
         title_label.setFont(title_font)
         title_label.setStyleSheet("color: #172033;")
-        subtitle_label = QLabel("粘贴链接，自动提取中文字幕")
+        subtitle_label = QLabel("粘贴链接，提取字幕")
         subtitle_label.setStyleSheet("color: #64748b; font-size: 13px; font-weight: 600;")
         title_stack.addWidget(title_label)
         title_stack.addWidget(subtitle_label)
@@ -1509,8 +1707,22 @@ class MainWindow(QMainWindow):
         self.model_summary_label.hide()
         config_layout = QHBoxLayout()
         config_layout.setSpacing(12)
-        config_layout.addWidget(self.create_status_card("模型", self.model_value_label, QStyle.StandardPixmap.SP_DriveNetIcon), 1)
-        config_layout.addWidget(self.create_status_card("运行方式", self.device_value_label, QStyle.StandardPixmap.SP_ComputerIcon), 1)
+        self.model_config_card = self.create_status_card(
+            "模型",
+            self.model_value_label,
+            QStyle.StandardPixmap.SP_DriveNetIcon,
+            action_text="选择",
+            on_click=self.open_model_picker,
+        )
+        self.device_config_card = self.create_status_card(
+            "运行方式",
+            self.device_value_label,
+            QStyle.StandardPixmap.SP_ComputerIcon,
+            action_text="选择",
+            on_click=self.open_device_menu,
+        )
+        config_layout.addWidget(self.model_config_card, 1)
+        config_layout.addWidget(self.device_config_card, 1)
         config_layout.addWidget(self.create_status_card("环境状态", self.env_value_label, QStyle.StandardPixmap.SP_DialogApplyButton), 1)
         main_layout.addWidget(
             self.create_icon_label("当前配置", QStyle.StandardPixmap.SP_FileDialogInfoView),
@@ -1518,6 +1730,10 @@ class MainWindow(QMainWindow):
             0,
         )
         main_layout.addLayout(config_layout, 2, 1, 1, 3)
+        config_hint = QLabel("中文内容请选择通用模型；英文内容可选择 .en 英文专用模型。")
+        config_hint.setWordWrap(True)
+        config_hint.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 400;")
+        main_layout.addWidget(config_hint, 3, 1, 1, 3)
 
         self.env_status = QLabel("环境状态：未检查")
         self.env_status.hide()
@@ -1555,7 +1771,7 @@ class MainWindow(QMainWindow):
                 border-color: #8da6cf;
             }
         """)
-        main_layout.addWidget(self.start_button, 3, 0, 1, 4)
+        main_layout.addWidget(self.start_button, 4, 0, 1, 4)
         layout.addWidget(main_card)
 
         self.progress = QProgressBar()
@@ -1757,17 +1973,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(text_label, 1, Qt.AlignmentFlag.AlignVCenter)
         return container
 
-    def create_status_card(self, title: str, value_label: QLabel, icon: QStyle.StandardPixmap) -> QFrame:
-        card = QFrame()
-        card.setObjectName("statusCard")
-        card.setMinimumHeight(74)
-        card.setStyleSheet("""
-            QFrame#statusCard {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-            }
-        """)
+    def create_status_card(
+        self,
+        title: str,
+        value_label: QLabel,
+        icon: QStyle.StandardPixmap,
+        action_text: str = "",
+        on_click=None,
+    ) -> QFrame:
+        card = QuickConfigCard(clickable=on_click is not None)
+        if on_click is not None:
+            card.clicked.connect(on_click)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(14)
@@ -1786,10 +2002,21 @@ class MainWindow(QMainWindow):
         title_label.setStyleSheet("color: #64748b; font-weight: 700;")
         value_label.setWordWrap(True)
         value_label.setStyleSheet("color: #172033; font-size: 14px; font-weight: 700;")
-        text_layout.addWidget(title_label)
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
+        header_layout.addWidget(title_label, 1)
+        if action_text:
+            action_label = QLabel(action_text)
+            action_label.setStyleSheet("color: #2563eb; font-size: 12px; font-weight: 700;")
+            header_layout.addWidget(action_label, 0, Qt.AlignmentFlag.AlignRight)
+            card.add_click_target(action_label)
+        text_layout.addLayout(header_layout)
         text_layout.addWidget(value_label)
         layout.addWidget(icon_label)
         layout.addLayout(text_layout, 1)
+        for target in (icon_label, title_label, value_label):
+            card.add_click_target(target)
         return card
 
     def decorate_button(self, button: QPushButton, icon: QStyle.StandardPixmap) -> None:
@@ -1812,6 +2039,65 @@ class MainWindow(QMainWindow):
         label.setStyleSheet("color: #475569; font-weight: 700;")
         label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         return label
+
+    def open_model_picker(self) -> None:
+        dialog = ModelPickerDialog(
+            self,
+            get_model_choices(self.deployed_models),
+            self.model_combo.currentData(),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        index = self.model_combo.findData(dialog.selected_value)
+        if index < 0:
+            return
+        if self.model_combo.currentIndex() != index:
+            self.model_combo.setCurrentIndex(index)
+        self.update_model_info()
+        self.save_settings_now()
+        if self.advanced_settings_dialog is not None:
+            self.advanced_settings_dialog.sync_model_run_from_main()
+
+    def open_device_menu(self) -> None:
+        options = [
+            ("自动选择", "auto"),
+            ("GPU 加速", "cuda"),
+            ("CPU 模式", "cpu"),
+        ]
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #ffffff;
+                color: #172033;
+                border: 1px solid #cbd5e1;
+                border-radius: 7px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 7px 26px 7px 10px;
+                border-radius: 5px;
+            }
+            QMenu::item:selected {
+                background: #eaf2ff;
+                color: #172033;
+            }
+        """)
+        current = self.device_combo.currentText()
+        for label, value in options:
+            action = menu.addAction(label)
+            action.setData(value)
+            action.setCheckable(True)
+            action.setChecked(value == current)
+        action = menu.exec(self.device_config_card.mapToGlobal(self.device_config_card.rect().bottomLeft()))
+        if action is None:
+            return
+        value = action.data() or "auto"
+        if self.device_combo.currentText() != value:
+            self.device_combo.setCurrentText(value)
+        self.update_model_summary()
+        self.save_settings_now()
+        if self.advanced_settings_dialog is not None:
+            self.advanced_settings_dialog.sync_model_run_from_main()
 
     def pick_file(self, target: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择文件")
