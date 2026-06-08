@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListView,
+    QPushButton,
     QSizePolicy,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -276,3 +281,156 @@ class ToolStatusCard(QFrame):
         if self.show_version:
             self.version_label.setText("版本：检测中")
         self.path_box.set_path("")
+
+
+def create_card() -> QFrame:
+    card = QFrame()
+    card.setObjectName("card")
+    card.setFrameShape(QFrame.Shape.StyledPanel)
+    card.setStyleSheet("""
+        QFrame#card {
+            background: #ffffff;
+            border: 1px solid #e1e6ec;
+            border-radius: 12px;
+        }
+    """)
+    shadow = QGraphicsDropShadowEffect(card)
+    shadow.setBlurRadius(18)
+    shadow.setOffset(0, 4)
+    shadow.setColor(QColor(31, 41, 55, 28))
+    card.setGraphicsEffect(shadow)
+    return card
+
+
+def create_icon_label(style_provider: QWidget, text: str, icon: QStyle.StandardPixmap) -> QWidget:
+    container = QWidget()
+    container.setStyleSheet("background: transparent;")
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(16)
+    icon_label = QLabel()
+    icon_label.setFixedSize(42, 42)
+    icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    icon_label.setPixmap(style_provider.style().standardIcon(icon).pixmap(24, 24))
+    icon_label.setStyleSheet("""
+        background: #eef6ff;
+        border: 1px solid #dbeafe;
+        border-radius: 7px;
+    """)
+    text_label = QLabel(text)
+    text_label.setStyleSheet("color: #1f2937; font-size: 14px; font-weight: 700;")
+    layout.addWidget(icon_label)
+    layout.addWidget(text_label, 1, Qt.AlignmentFlag.AlignVCenter)
+    return container
+
+
+def create_status_card(
+    style_provider: QWidget,
+    title: str,
+    value_label: QLabel,
+    icon: QStyle.StandardPixmap,
+    action_text: str = "",
+    on_click=None,
+) -> QFrame:
+    card = QuickConfigCard(clickable=on_click is not None)
+    if on_click is not None:
+        card.clicked.connect(on_click)
+    layout = QHBoxLayout(card)
+    layout.setContentsMargins(18, 14, 18, 14)
+    layout.setSpacing(14)
+    icon_label = QLabel()
+    icon_label.setFixedSize(44, 44)
+    icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    icon_label.setPixmap(style_provider.style().standardIcon(icon).pixmap(24, 24))
+    icon_label.setStyleSheet("""
+        background: #eef6ff;
+        border-radius: 22px;
+    """)
+    text_layout = QVBoxLayout()
+    text_layout.setContentsMargins(0, 0, 0, 0)
+    text_layout.setSpacing(3)
+    title_label = QLabel(title)
+    title_label.setStyleSheet("color: #64748b; font-weight: 700;")
+    value_label.setWordWrap(True)
+    value_label.setStyleSheet("color: #172033; font-size: 14px; font-weight: 700;")
+    header_layout = QHBoxLayout()
+    header_layout.setContentsMargins(0, 0, 0, 0)
+    header_layout.setSpacing(6)
+    header_layout.addWidget(title_label, 1)
+    if action_text:
+        action_label = QLabel(action_text)
+        action_label.setStyleSheet("color: #2563eb; font-size: 12px; font-weight: 700;")
+        header_layout.addWidget(action_label, 0, Qt.AlignmentFlag.AlignRight)
+        card.add_click_target(action_label)
+    text_layout.addLayout(header_layout)
+    text_layout.addWidget(value_label)
+    layout.addWidget(icon_label)
+    layout.addLayout(text_layout, 1)
+    for target in (icon_label, title_label, value_label):
+        card.add_click_target(target)
+    return card
+
+
+def decorate_button(style_provider: QWidget, button: QPushButton, icon: QStyle.StandardPixmap) -> None:
+    button.setIcon(style_provider.style().standardIcon(icon))
+    button.setIconSize(button.iconSize())
+
+
+def create_pick_button(style_provider: QWidget, target: QLineEdit, pick_file_callback) -> QPushButton:
+    button = QPushButton("选择")
+    decorate_button(style_provider, button, QStyle.StandardPixmap.SP_DialogOpenButton)
+    button.clicked.connect(lambda: pick_file_callback(target))
+    return button
+
+
+def form_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setStyleSheet("color: #334155; font-weight: 600;")
+    return label
+
+
+def field_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setStyleSheet("color: #475569; font-weight: 700;")
+    label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    return label
+
+
+def form_row(label_text: str, field: QWidget) -> QWidget:
+    row = QWidget()
+    row.setStyleSheet("background: transparent;")
+    layout = QVBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    label = QLabel(label_text)
+    label.setStyleSheet("color: #475569; font-weight: 700;")
+    layout.addWidget(label)
+    layout.addWidget(field)
+    return row
+
+
+def status_line(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    label.setStyleSheet("""
+        color: #334155;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 7px;
+        padding: 8px 10px;
+        font-weight: 500;
+    """)
+    return label
+
+
+def placeholder_tab(text: str) -> QWidget:
+    page = QWidget()
+    page.setStyleSheet("QWidget { background: #ffffff; }")
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(24, 24, 24, 24)
+    label = QLabel(text)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setStyleSheet("color: #64748b; font-size: 14px; font-weight: 700;")
+    layout.addWidget(label, 1)
+    return page
