@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QThread, QTimer, Qt
-from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -15,18 +15,15 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QPlainTextEdit,
-    QProgressBar,
     QRadioButton,
-    QScrollArea,
-    QSizePolicy,
     QStyle,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QUrl
 
+from advanced_env_tab import build_environment_tab as create_environment_tab
+from advanced_model_tab import build_model_run_tab as create_model_run_tab
 from env_checker import (
     build_env_summary,
     format_env_report,
@@ -41,12 +38,7 @@ from model_config import (
 from settings_manager import DEFAULT_MODEL_DIR
 from ui_components import (
     NoWheelComboBox,
-    ToolStatusCard,
-    create_card,
-    create_icon_label,
-    decorate_button,
     form_row,
-    status_line,
 )
 from workers import EnvWorker, ModelDeployWorker
 
@@ -197,237 +189,10 @@ class AdvancedSettingsDialog(QDialog):
         root.addLayout(footer)
 
     def build_environment_tab(self) -> QWidget:
-        page = QWidget()
-        page.setStyleSheet("QWidget { background: #ffffff; }")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-
-        content_layout = QHBoxLayout()
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(16)
-
-        left = QVBoxLayout()
-        left.setSpacing(10)
-        tools_header = QHBoxLayout()
-        tools_header.setContentsMargins(0, 0, 0, 0)
-        tools_header.setSpacing(10)
-        tools_title = QLabel("工具状态")
-        tools_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #172033;")
-        self.update_tools_button = QPushButton("更新 yt-dlp")
-        self.redetect_button = QPushButton("重新检测")
-        self.restore_button = QPushButton("恢复使用内置工具")
-        self.update_tools_button.setObjectName("smallSecondaryButton")
-        self.redetect_button.setObjectName("smallSecondaryButton")
-        self.restore_button.setObjectName("linkButton")
-        self.restore_button.setFlat(True)
-        self.restore_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.update_tools_button.clicked.connect(self.update_tools)
-        self.redetect_button.clicked.connect(self.run_detection)
-        self.restore_button.clicked.connect(self.restore_builtin_tools)
-        tools_header.addWidget(tools_title, 1)
-        tools_header.addWidget(self.redetect_button)
-        left.addLayout(tools_header)
-
-        self.ffmpeg_card = ToolStatusCard("FFmpeg", self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon), show_version=False)
-        self.ytdlp_card = ToolStatusCard("yt-dlp", self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
-        self.ffmpeg_card.path_box.clicked.connect(lambda: self.choose_tool_path("ffmpeg"))
-        self.ytdlp_card.path_box.clicked.connect(lambda: self.choose_tool_path("yt_dlp"))
-        left.addWidget(self.ffmpeg_card)
-        left.addWidget(self.ytdlp_card)
-
-        light_actions = QHBoxLayout()
-        light_actions.setContentsMargins(2, 2, 0, 0)
-        light_actions.setSpacing(12)
-        light_actions.addWidget(self.restore_button, 0, Qt.AlignmentFlag.AlignLeft)
-        light_actions.addStretch(1)
-        light_actions.addWidget(self.update_tools_button, 0, Qt.AlignmentFlag.AlignRight)
-        left.addLayout(light_actions)
-        left.addStretch(1)
-        content_layout.addLayout(left, 3)
-
-        notes = QFrame()
-        notes.setObjectName("notesPanel")
-        notes.setStyleSheet("""
-            QFrame#notesPanel {
-                background: #f9fbfd;
-                border: 1px solid #e2e8f0;
-                border-radius: 7px;
-            }
-        """)
-        notes_layout = QVBoxLayout(notes)
-        notes_layout.setContentsMargins(15, 14, 15, 14)
-        notes_layout.setSpacing(9)
-        notes_title = QLabel("说明")
-        notes_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #172033;")
-        notes_body = QLabel(
-            "软件会优先使用内置工具，无需手动配置即可正常使用。\n\n"
-            "如需使用本机已有工具，可点击路径自定义位置。\n\n"
-            "遇到下载解析失败时，可尝试更新 yt-dlp。"
-        )
-        notes_body.setWordWrap(True)
-        notes_body.setStyleSheet("color: #475569; line-height: 150%; font-weight: 400;")
-        notes_layout.addWidget(notes_title)
-        notes_layout.addWidget(notes_body)
-        notes_layout.addStretch(1)
-        content_layout.addWidget(notes, 2)
-        layout.addLayout(content_layout, 1)
-        return page
+        return create_environment_tab(self)
 
     def build_model_run_tab(self) -> QWidget:
-        page = QWidget()
-        page.setStyleSheet("QWidget { background: #ffffff; }")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-
-        content_layout = QHBoxLayout()
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(16)
-
-        left = QFrame()
-        left.setObjectName("modelRunPanel")
-        left.setStyleSheet("""
-            QFrame#modelRunPanel {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-            }
-        """)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(16, 15, 16, 16)
-        left_layout.setSpacing(12)
-
-        config_title = QLabel("模型与运行配置")
-        config_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #172033;")
-        left_layout.addWidget(config_title)
-
-        self.advanced_model_combo = NoWheelComboBox()
-        self.populate_advanced_model_combo(self.main_window.model_combo.currentData())
-        self.advanced_model_combo.currentIndexChanged.connect(self.advanced_model_changed)
-        left_layout.addWidget(form_row("Whisper 模型", self.advanced_model_combo))
-
-        self.advanced_device_combo = NoWheelComboBox()
-        self.advanced_device_combo.addItem("自动选择", "auto")
-        self.advanced_device_combo.addItem("GPU 加速", "cuda")
-        self.advanced_device_combo.addItem("CPU 模式", "cpu")
-        self.advanced_device_combo.currentIndexChanged.connect(self.advanced_device_changed)
-        left_layout.addWidget(form_row("运行方式", self.advanced_device_combo))
-
-        model_dir_layout = QHBoxLayout()
-        model_dir_layout.setContentsMargins(0, 0, 0, 0)
-        model_dir_layout.setSpacing(8)
-        self.model_dir_input = QLineEdit()
-        self.model_dir_input.setPlaceholderText(DEFAULT_MODEL_DIR.name)
-        self.model_dir_input.setText(self.main_window.model_dir)
-        self.model_dir_input.textChanged.connect(self.model_dir_changed)
-        self.model_dir_button = QPushButton("浏览")
-        self.model_dir_button.setObjectName("smallSecondaryButton")
-        self.model_dir_button.clicked.connect(self.pick_model_dir)
-        model_dir_layout.addWidget(self.model_dir_input, 1)
-        model_dir_layout.addWidget(self.model_dir_button)
-        model_dir_widget = QWidget()
-        model_dir_widget.setStyleSheet("background: transparent;")
-        model_dir_widget.setLayout(model_dir_layout)
-        left_layout.addWidget(form_row("模型存放位置", model_dir_widget))
-
-        self.advanced_local_model_label = QLabel("本地模型目录")
-        self.advanced_local_model_label.setStyleSheet("color: #475569; font-weight: 700;")
-        local_layout = QHBoxLayout()
-        local_layout.setContentsMargins(0, 0, 0, 0)
-        local_layout.setSpacing(8)
-        self.advanced_local_model_input = QLineEdit()
-        self.advanced_local_model_input.setPlaceholderText("例如 D:/models/faster-whisper-large-v3")
-        self.advanced_local_model_input.textChanged.connect(self.advanced_local_model_changed)
-        self.advanced_local_model_button = QPushButton("浏览")
-        self.advanced_local_model_button.setObjectName("smallSecondaryButton")
-        self.advanced_local_model_button.clicked.connect(self.pick_advanced_local_model_dir)
-        local_layout.addWidget(self.advanced_local_model_input, 1)
-        local_layout.addWidget(self.advanced_local_model_button)
-        local_widget = QWidget()
-        local_widget.setStyleSheet("background: transparent;")
-        local_widget.setLayout(local_layout)
-        self.advanced_local_model_row = form_row("本地模型目录", local_widget)
-        left_layout.addWidget(self.advanced_local_model_row)
-
-        self.advanced_model_info = QPlainTextEdit()
-        self.advanced_model_info.setReadOnly(True)
-        self.advanced_model_info.setMinimumHeight(132)
-        self.advanced_model_info.setMaximumHeight(150)
-        self.advanced_model_info.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.advanced_model_info.setStyleSheet("""
-            QPlainTextEdit {
-                color: #475569;
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 7px;
-                padding: 8px 10px;
-                font-weight: 400;
-            }
-        """)
-        left_layout.addWidget(self.advanced_model_info)
-
-        actions = QHBoxLayout()
-        actions.setContentsMargins(0, 2, 0, 0)
-        actions.setSpacing(10)
-        self.advanced_deploy_button = QPushButton("下载/部署所选模型")
-        self.advanced_deploy_button.clicked.connect(self.deploy_selected_model)
-        self.advanced_gpu_button = QPushButton("安装 GPU 加速组件")
-        self.advanced_gpu_button.clicked.connect(self.install_gpu_components)
-        actions.addWidget(self.advanced_deploy_button)
-        actions.addWidget(self.advanced_gpu_button)
-        left_layout.addLayout(actions)
-
-        self.advanced_action_status = QLabel("设置会自动保存；部署和安装会在后台执行。")
-        self.advanced_action_status.setWordWrap(True)
-        self.advanced_action_status.setStyleSheet("color: #64748b; font-weight: 400;")
-        left_layout.addWidget(self.advanced_action_status)
-        left_layout.addStretch(1)
-        content_layout.addWidget(left, 3)
-
-        right = QFrame()
-        right.setObjectName("runInfoPanel")
-        right.setStyleSheet("""
-            QFrame#runInfoPanel {
-                background: #f9fbfd;
-                border: 1px solid #e2e8f0;
-                border-radius: 7px;
-            }
-        """)
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(15, 14, 15, 14)
-        right_layout.setSpacing(10)
-        info_title = QLabel("运行信息")
-        info_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #172033;")
-        right_layout.addWidget(info_title)
-        self.whisper_status_label = status_line("语音识别：未检测")
-        self.cuda_status_label = status_line("GPU 加速：未检测")
-        self.whisper_version_label = status_line("faster-whisper 版本：未知")
-        for label in (
-            self.whisper_status_label,
-            self.cuda_status_label,
-            self.whisper_version_label,
-        ):
-            right_layout.addWidget(label)
-
-        tips_title = QLabel("提示")
-        tips_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #172033; margin-top: 6px;")
-        tips_body = QLabel(
-            "建议首次使用选择 medium 模型，在速度与识别准确度之间较平衡。\n\n"
-            "GPU 加速仅 NVIDIA 显卡支持；不可用时会使用 CPU 模式。\n\n"
-            "模型部署到本地后，可减少重复下载并支持离线使用。"
-        )
-        tips_body.setWordWrap(True)
-        tips_body.setStyleSheet("color: #475569; line-height: 150%; font-weight: 400;")
-        right_layout.addWidget(tips_title)
-        right_layout.addWidget(tips_body)
-        right_layout.addStretch(1)
-        content_layout.addWidget(right, 2)
-
-        layout.addLayout(content_layout, 1)
-        self.sync_model_run_from_main()
-        self.update_model_run_controls()
-        return page
+        return create_model_run_tab(self)
 
     def build_cookie_access_tab(self) -> QWidget:
         page = QWidget()
