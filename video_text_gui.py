@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self.output_path = ""
         self.loading_settings = False
         self.env_task_autosave = True
+        self.pending_extract_model_download: tuple[str, str] | None = None
         self.model_dir = normalize_model_dir(self.settings.get("model_dir"))
         self.deployed_models = scan_deployed_models(self.selected_models_dir())
         self.settings_save_timer = QTimer(self)
@@ -656,12 +657,13 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
 
     def open_help_document(self) -> None:
-        help_path = ROOT / "README.md"
-        if not help_path.is_file():
-            QMessageBox.warning(self, "帮助文档不存在", f"未找到帮助文档：{help_path}")
-            return
-        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(help_path))):
-            QMessageBox.warning(self, "无法打开帮助文档", f"请手动打开：{help_path}")
+        help_url = "https://github.com/umico8832/Video-Text"
+        if not QDesktopServices.openUrl(QUrl(help_url)):
+            QMessageBox.warning(
+                self,
+                "无法打开帮助文档",
+                f"无法打开帮助文档，请手动访问：\n{help_url}",
+            )
 
     def confirm_model_deploy(self, model_name: str, model_source: str) -> bool:
         models_dir = self.selected_models_dir()
@@ -845,6 +847,33 @@ class MainWindow(QMainWindow):
             self.loading_settings = False
         self.update_model_info()
 
+    def refresh_model_deployment_state(self, selected_value: str | None = None) -> None:
+        current_value = selected_value if selected_value is not None else self.model_combo.currentData()
+        self.refresh_model_choices()
+        if current_value:
+            index = self.model_combo.findData(current_value)
+            if index >= 0 and self.model_combo.currentIndex() != index:
+                self.model_combo.setCurrentIndex(index)
+        self.update_model_summary()
+        if self.advanced_settings_dialog is not None:
+            self.advanced_settings_dialog.populate_advanced_model_combo(self.model_combo.currentData())
+            self.advanced_settings_dialog.sync_model_run_from_main()
+            self.advanced_settings_dialog.update_model_run_controls()
+
+    def refresh_pending_extract_model_download(self, log_completion: bool = True) -> bool:
+        pending_download = self.pending_extract_model_download
+        if not pending_download:
+            return False
+        model_name, download_dir = pending_download
+        if not is_preset_model(model_name) or not is_valid_model_dir(download_dir):
+            return False
+        self.refresh_model_deployment_state(model_name)
+        if log_completion:
+            self.append_log(f"Whisper 模型已下载完成：{model_name}")
+        self.append_log("模型状态已刷新，可离线使用。")
+        self.pending_extract_model_download = None
+        return True
+
     def update_cookie_mode_ui(self) -> None:
         mode = self.cookie_mode_combo.currentData()
         is_browser = mode == "browser"
@@ -970,6 +999,10 @@ class MainWindow(QMainWindow):
         self.log_view.appendPlainText(f"[{timestamp()}] {message}")
         scrollbar = self.log_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+        if "Whisper 模型已下载完成" in message:
+            self.refresh_pending_extract_model_download(log_completion=False)
+        elif "Whisper 模型已下载到本地目录" in message:
+            self.refresh_pending_extract_model_download()
 
     def append_log_separator(self) -> None:
         self.log_view.appendPlainText("------------------------------")
@@ -1087,6 +1120,7 @@ class MainWindow(QMainWindow):
         self.save_settings_now()
         self.set_status("正在启动字幕提取")
         self.output_path = ""
+        self.pending_extract_model_download = None
         if not prompt_logged:
             self.append_log_separator()
         self.append_log("启动字幕获取工作流")
@@ -1120,6 +1154,11 @@ class MainWindow(QMainWindow):
             model_download_name=runtime_model.download_model,
             model_download_dir=runtime_model.download_dir,
         )
+        if runtime_model.download_model and runtime_model.download_dir:
+            self.pending_extract_model_download = (
+                runtime_model.download_model,
+                runtime_model.download_dir,
+            )
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.log.connect(self.append_log)
@@ -1163,8 +1202,11 @@ class MainWindow(QMainWindow):
         self.thread.start()
 
     def model_deploy_done(self, ok: bool, message: str) -> None:
-        if ok and is_preset_model(self.model_combo.currentData()):
-            self.refresh_model_choices()
+        selected_value = self.model_combo.currentData()
+        if ok and is_preset_model(selected_value):
+            self.refresh_model_deployment_state(selected_value)
+            self.append_log(f"Whisper 模型已下载完成：{selected_value}")
+            self.append_log("模型状态已刷新，可离线使用。")
         self.set_status(message)
         self.append_log(message)
         if not ok and message.startswith("模型部署失败"):
@@ -1173,15 +1215,17 @@ class MainWindow(QMainWindow):
 
     def extract_done(self, ok: bool, message: str) -> None:
         if ok:
+            self.refresh_pending_extract_model_download()
             self.output_path = message
             self.set_status(f"提取完成：{message}")
-            self.append_log(f"提取完成，字幕文本已保存到：{message}")
+            self.append_log("提取完成。")
         else:
             if "未找到可用字幕" in message and "识别模型" in message:
                 self.set_status(f"{MISSING_WHISPER_MODEL_MESSAGE}可展开运行日志查看详情")
             else:
                 self.set_status(f"提取失败：{message}。可展开运行日志查看详情")
             self.append_log(f"提取失败：{message}")
+        self.pending_extract_model_download = None
         self.refresh_buttons(False)
 
     def open_output_dir(self) -> None:

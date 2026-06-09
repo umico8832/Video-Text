@@ -506,6 +506,7 @@ def ensure_local_whisper_model(
     download_model(source_model, output_dir=str(target_dir))
     if not is_valid_model_dir(target_dir):
         raise RuntimeError("下载完成，但模型目录缺少基本模型文件")
+    log(f"Whisper 模型已下载完成：{source_model}", log_callback)
     log(f"Whisper 模型已下载到本地目录：{target_dir}", log_callback)
     return str(target_dir)
 

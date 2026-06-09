@@ -29,6 +29,7 @@ from env_checker import (
 from model_config import (
     get_model_choices,
     get_model_description,
+    is_preset_model,
     is_local_model_choice,
     is_valid_model_dir,
     resolve_selected_model,
@@ -540,8 +541,11 @@ class AdvancedSettingsDialog(QDialog):
 
     def model_deploy_done(self, ok: bool, message: str) -> None:
         if ok:
-            self.main_window.refresh_model_choices()
-            self.populate_advanced_model_combo(self.main_window.model_combo.currentData())
+            selected_value = self.advanced_model_combo.currentData()
+            self.main_window.refresh_model_deployment_state(selected_value)
+            if is_preset_model(selected_value):
+                self.main_window.append_log(f"Whisper 模型已下载完成：{selected_value}")
+                self.main_window.append_log("模型状态已刷新，可离线使用。")
         self.main_window.set_status(message)
         self.main_window.append_log(message)
         self.advanced_action_status.setText(message)

@@ -33,12 +33,38 @@ The portable package should not include:
 - `*.spec`
 - `__pycache__`
 - `outputs`
+- `models`
+- `settings.json`
+- `cookies.txt`
 - `*.log`
 - Whisper model caches
 - NVIDIA / CUDA GPU runtime packages
 
 Whisper models are downloaded on first use. GPU acceleration packages should be
 installed from the GUI only when needed.
+
+## Runtime tools and release manifest
+
+Current code resolves bundled tools from the project-local virtual environment:
+
+- FFmpeg: `.venv\Scripts\ffmpeg.exe`
+- yt-dlp: `.venv\Scripts\yt-dlp.exe`
+
+The GUI can prepare these tools during environment setup, but `.venv` is a local
+runtime environment and should not be committed or included in the normal release
+archive.
+
+If FFmpeg and yt-dlp are later shipped as repository-owned runtime files, use a
+stable bundled tools directory such as:
+
+```text
+tools\ffmpeg\bin\ffmpeg.exe
+tools\yt-dlp\yt-dlp.exe
+```
+
+In that case, update the application path resolution and release script to copy
+that directory, then add a matching `.gitignore` exception for only that bundled
+tools directory.
 
 ## GUI environment setup
 
@@ -73,11 +99,35 @@ PySide6, Whisper, model files, or GPU libraries.
 
 For release, package the root `视频字幕提取.exe` with:
 
+- `launcher.py`
 - `video_text_gui.py`
 - `extract_subtitle.py`
-- `launcher.py`
+- `workers.py`
+- `settings_manager.py`
+- `model_config.py`
+- `env_checker.py`
+- `model_picker_dialog.py`
+- `ui_components.py`
+- `advanced_settings_dialog.py`
+- `advanced_env_tab.py`
+- `advanced_model_tab.py`
+- `advanced_cookies_tab.py`
 - `requirements.txt`
-- `启动软件.bat`
+- `README.md`
 - `WINDOWS_SETUP.md`
+- `启动软件.bat`
+- bundled runtime tools directory, only after the code and release script are
+  updated to use it
 
-Do not package the local development `.venv`.
+Do not package:
+
+- `.venv`
+- `.launcher-build`
+- `build`
+- `dist`
+- `outputs`
+- `models`
+- `settings.json`
+- `cookies.txt`
+- `*.log`
+- `.git`
