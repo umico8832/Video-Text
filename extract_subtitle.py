@@ -119,6 +119,66 @@ def log(message: str, callback: LogCallback | None = None) -> None:
         print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
+def is_bilibili_412_error(url: str, error: str) -> bool:
+    text = f"{url}\n{error}".lower()
+    return (
+        "bilibili" in text
+        and ("http error 412" in text or "precondition failed" in text)
+    )
+
+
+def is_browser_cookie_database_error(error: str) -> bool:
+    text = error.lower()
+    return (
+        "could not copy chrome cookie database" in text
+        or ("could not copy" in text and "cookie database" in text)
+    )
+
+
+def compact_error_detail(error: str) -> str:
+    lines = [line.strip() for line in str(error).splitlines() if line.strip()]
+    return "\n".join(lines[-6:])
+
+
+def browser_display_name(browser: str | None) -> str:
+    if not browser:
+        return "浏览器"
+    normalized = str(browser).strip().lower()
+    names = {
+        "chrome": "Chrome",
+        "edge": "Edge",
+        "firefox": "Firefox",
+    }
+    return names.get(normalized, normalized.title())
+
+
+def format_download_error(url: str, exc: Exception, fallback: str, cookies_from_browser: str | None = None) -> str:
+    detail = compact_error_detail(str(exc))
+    if is_browser_cookie_database_error(detail):
+        browser_name = browser_display_name(cookies_from_browser)
+        return (
+            f"读取 {browser_name} Cookie 失败：浏览器 Cookie 数据库可能正在被 {browser_name} 占用，"
+            "或当前程序没有权限复制。\n\n"
+            "建议：\n"
+            f"1. 完全关闭 {browser_name}；\n"
+            f"2. 在任务管理器确认没有 {browser_name.lower()}.exe 残留；\n"
+            "3. 重新尝试读取 Cookie；\n"
+            "4. 或切换为“不使用 Cookie”后测试公开视频。\n\n"
+            f"详情：{detail}"
+        )
+    if is_bilibili_412_error(url, detail):
+        return (
+            "Bilibili 获取失败：B 站当前可能拦截了自动请求，或当前网络出口 / IP / 登录态不符合要求。\n\n"
+            "建议：\n"
+            "1. 关闭全局代理 / TUN 后重试；\n"
+            "2. 换手机热点或其他网络重试；\n"
+            "3. 登录 B 站后使用 Cookie；\n"
+            "4. 如果仍失败，可能需要等待 yt-dlp 适配更新。\n\n"
+            f"详情：{detail}"
+        )
+    return f"{fallback}\n详情：{detail}"
+
+
 def is_gpu_runtime_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(
@@ -533,7 +593,14 @@ def extract(
     try:
         info = get_info(url, cookies, ffmpeg_path=ffmpeg_path, cookies_from_browser=cookies_from_browser)
     except Exception as exc:
-        raise RuntimeError(f"下载失败：无法获取视频信息。请检查链接是否有效，或稍后重试。\n详情：{exc}") from exc
+        raise RuntimeError(
+            format_download_error(
+                url,
+                exc,
+                "下载失败：无法获取视频信息。请检查链接是否有效，或稍后重试。",
+                cookies_from_browser,
+            )
+        ) from exc
     title = sanitize_filename(info.get("title") or info.get("id") or "video")
     video_id = sanitize_filename(str(info.get("id") or "video"))
     if output_dir is None:
@@ -581,7 +648,14 @@ def extract(
         try:
             audio_path = download_audio(url, workdir, cookies, ffmpeg_path=ffmpeg_path, log_callback=log_callback, cookies_from_browser=cookies_from_browser)
         except Exception as exc:
-            raise RuntimeError(f"下载失败：无法下载音频。请检查网络、链接或 Cookies 设置。\n详情：{exc}") from exc
+            raise RuntimeError(
+                format_download_error(
+                    url,
+                    exc,
+                    "下载失败：无法下载音频。请检查网络、链接或 Cookies 设置。",
+                    cookies_from_browser,
+                )
+            ) from exc
         log("音频下载完成，开始语音识别...", log_callback)
         text = transcribe_audio(
             audio_path,

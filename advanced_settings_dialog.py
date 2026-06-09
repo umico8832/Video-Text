@@ -248,7 +248,7 @@ class AdvancedSettingsDialog(QDialog):
         if self.syncing_cookies:
             return
         browser = self.advanced_cookie_browser_combo.currentData() or "chrome"
-        index = self.main_window.cookie_browser_combo.findText(str(browser).title())
+        index = self.main_window.cookie_browser_combo.findData(str(browser).lower())
         self.syncing_cookies = True
         try:
             self.main_window.cookie_browser_combo.setCurrentIndex(index if index >= 0 else 0)

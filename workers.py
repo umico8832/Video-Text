@@ -128,7 +128,6 @@ class ExtractWorker(QObject):
             )
             self.done.emit(True, str(result))
         except Exception as exc:
-            self.log.emit(f"提取失败：字幕获取流程未完成。\n详情：{exc}")
             self.done.emit(False, str(exc))
 
 

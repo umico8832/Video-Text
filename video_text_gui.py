@@ -91,6 +91,29 @@ def clean_log_text(message: str) -> str:
     return ANSI_RE.sub("", message)
 
 
+def failure_summary(message: str) -> str:
+    first_line = next((line.strip() for line in message.splitlines() if line.strip()), message.strip())
+    if first_line.startswith("Bilibili 获取失败"):
+        return "Bilibili 获取失败"
+    if first_line.startswith("读取 Chrome Cookie 失败"):
+        return "读取 Chrome Cookie 失败"
+    if first_line.startswith("读取 Edge Cookie 失败"):
+        return "读取 Edge Cookie 失败"
+    if first_line.startswith("读取 Firefox Cookie 失败"):
+        return "读取 Firefox Cookie 失败"
+    return first_line.rstrip("。")
+
+
+def selected_cookie_browser(combo: NoWheelComboBox) -> str:
+    browser = combo.currentData()
+    if browser:
+        return str(browser).lower()
+    index = combo.currentIndex()
+    if 0 <= index < len(COOKIE_BROWSERS):
+        return COOKIE_BROWSERS[index]
+    return "chrome"
+
+
 def configure_app_font(app: QApplication) -> None:
     families = set(QFontDatabase.families())
     preferred = [
@@ -404,7 +427,8 @@ class MainWindow(QMainWindow):
         for mode in COOKIE_MODES:
             self.cookie_mode_combo.addItem(mode["label"], mode["name"])
         self.cookie_browser_combo = NoWheelComboBox()
-        self.cookie_browser_combo.addItems(["Chrome", "Edge", "Firefox"])
+        for browser in COOKIE_BROWSERS:
+            self.cookie_browser_combo.addItem(browser.title(), browser)
         self.browser_combo = self.cookie_browser_combo
         self.cookie_browser_label = form_label("浏览器")
         self.cookies_input = QLineEdit()
@@ -954,7 +978,7 @@ class MainWindow(QMainWindow):
             "model_dir": self.model_dir,
             "device": self.device_combo.currentText(),
             "cookie_mode": self.cookie_mode_combo.currentData(),
-            "cookies_browser": COOKIE_BROWSERS[self.cookie_browser_combo.currentIndex()],
+            "cookies_browser": selected_cookie_browser(self.cookie_browser_combo),
             "selected_model": self.model_combo.currentData(),
             "local_model": self.local_model_input.text(),
         })
@@ -1003,6 +1027,32 @@ class MainWindow(QMainWindow):
             self.refresh_pending_extract_model_download(log_completion=False)
         elif "Whisper 模型已下载到本地目录" in message:
             self.refresh_pending_extract_model_download()
+
+    def append_failure_log(self, message: str) -> None:
+        message = clean_log_text(message).strip()
+        lines = [line.strip() for line in message.splitlines() if line.strip()]
+        reason = lines[0] if lines else "未知错误"
+        suggestions: list[str] = []
+        details: list[str] = []
+        target: list[str] | None = None
+        for line in lines[1:]:
+            if line == "建议：":
+                target = suggestions
+                continue
+            if line.startswith("详情："):
+                target = details
+                detail = line.removeprefix("详情：").strip()
+                if detail:
+                    details.append(detail)
+                continue
+            if target is not None:
+                target.append(line)
+        self.append_log("提取失败。")
+        self.append_log(f"原因：{reason}")
+        if suggestions:
+            self.append_log("建议：" + "\n" + "\n".join(suggestions))
+        if details:
+            self.append_log("详情：" + "\n" + "\n".join(details))
 
     def append_log_separator(self) -> None:
         self.log_view.appendPlainText("------------------------------")
@@ -1131,7 +1181,7 @@ class MainWindow(QMainWindow):
         cookies_from_browser = None
         cookies = self.cookies_input.text()
         if cookie_mode == "browser":
-            cookies_from_browser = COOKIE_BROWSERS[self.cookie_browser_combo.currentIndex()]
+            cookies_from_browser = selected_cookie_browser(self.cookie_browser_combo)
             cookies = ""
             self.append_log(f"将从浏览器 {cookies_from_browser.title()} 读取 Cookies")
         elif cookie_mode == "file":
@@ -1220,11 +1270,12 @@ class MainWindow(QMainWindow):
             self.set_status(f"提取完成：{message}")
             self.append_log("提取完成。")
         else:
+            summary = failure_summary(message)
             if "未找到可用字幕" in message and "识别模型" in message:
                 self.set_status(f"{MISSING_WHISPER_MODEL_MESSAGE}可展开运行日志查看详情")
             else:
-                self.set_status(f"提取失败：{message}。可展开运行日志查看详情")
-            self.append_log(f"提取失败：{message}")
+                self.set_status(f"提取失败：{summary}。可展开运行日志查看详情")
+            self.append_failure_log(message)
         self.pending_extract_model_download = None
         self.refresh_buttons(False)
 
