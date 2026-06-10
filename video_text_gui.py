@@ -510,10 +510,35 @@ class MainWindow(QMainWindow):
                 font-family: Consolas, "Microsoft YaHei UI";
                 color: #334155;
             }
+            QPlainTextEdit#logView QScrollBar:vertical {
+                width: 9px;
+                background: transparent;
+                border: none;
+                margin: 0;
+            }
+            QPlainTextEdit#logView QScrollBar::handle:vertical {
+                min-height: 28px;
+                background: #cbd5e1;
+                border-radius: 4px;
+            }
+            QPlainTextEdit#logView QScrollBar::handle:vertical:hover {
+                background: #94a3b8;
+            }
+            QPlainTextEdit#logView QScrollBar::add-line:vertical,
+            QPlainTextEdit#logView QScrollBar::sub-line:vertical {
+                height: 0;
+                background: transparent;
+                border: none;
+            }
+            QPlainTextEdit#logView QScrollBar::add-page:vertical,
+            QPlainTextEdit#logView QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
         """)
         log_panel_layout = QVBoxLayout(self.log_panel_widget)
         log_panel_layout.setContentsMargins(8, 8, 8, 8)
         self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("logView")
         self.log_view.setReadOnly(True)
         self.log_view.setMinimumHeight(150)
         self.log_view.setMaximumHeight(220)
