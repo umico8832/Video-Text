@@ -65,9 +65,9 @@ def build_cookie_access_tab(dialog) -> QWidget:
     dialog.advanced_cookie_option_frames: dict[str, QFrame] = {}
     dialog.advanced_cookie_option_modes: dict[QObject, str] = {}
     cookie_options = [
-        ("none", "不使用 Cookies（推荐）", "适用于大多数公开视频"),
-        ("browser", "从浏览器读取", "自动读取浏览器中的登录状态"),
-        ("file", "使用 cookies.txt 文件", "使用本地 cookies.txt 文件；软件只保存文件路径，不读取或展示 Cookies 内容。"),
+        ("none", "不使用 Cookies（默认推荐）", "推荐用于 YouTube / 普通公开视频；无需登录时最稳定。"),
+        ("file", "使用 cookies.txt 文件（Bilibili / 登录资源推荐）", "稳定性通常高于直读 Chrome / Edge；软件只保存文件路径，不读取或展示 Cookies 内容。"),
+        ("browser", "从浏览器读取（便捷，但可能失败）", "可选择 Chrome、Edge 或 Firefox；Chrome / Edge 在部分 Windows 环境可能读取失败。"),
     ]
     for mode, label, description in cookie_options:
         radio = QRadioButton(label)
@@ -123,14 +123,12 @@ def build_cookie_access_tab(dialog) -> QWidget:
     right_layout = QVBoxLayout(right)
     right_layout.setContentsMargins(15, 14, 15, 14)
     right_layout.setSpacing(10)
-    info_title = QLabel("说明")
+    info_title = QLabel("当前选项说明")
     info_title.setStyleSheet("font-size: 14px; font-weight: 600; color: #172033;")
-    info_body = QLabel(
-        "大多数公开视频不需要 Cookies。\n\n"
-        "只有登录资源、会员资源或部分受限视频，才可能需要 Cookies 才能正常下载字幕或音频。\n\n"
-    )
+    info_body = QLabel()
     info_body.setWordWrap(True)
     info_body.setStyleSheet("color: #475569; line-height: 150%; font-weight: 400;")
+    dialog.advanced_cookie_info_body = info_body
     right_layout.addWidget(info_title)
     right_layout.addWidget(info_body)
     right_layout.addStretch(1)

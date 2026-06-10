@@ -1183,11 +1183,16 @@ class MainWindow(QMainWindow):
         if cookie_mode == "browser":
             cookies_from_browser = selected_cookie_browser(self.cookie_browser_combo)
             cookies = ""
-            self.append_log(f"将从浏览器 {cookies_from_browser.title()} 读取 Cookies")
+            self.append_log(f"正在尝试从浏览器 {cookies_from_browser.title()} 读取 Cookies...")
         elif cookie_mode == "file":
             cookies = self.cookies_input.text()
+            if cookies.strip():
+                self.append_log(f"已选择 cookies.txt 文件：{Path(cookies).name or 'cookies.txt'}，本次请求将使用该文件。")
+            else:
+                self.append_log("已选择 cookies.txt 文件模式，但尚未填写文件路径。")
         else:
             cookies = ""
+            self.append_log("未启用 Cookies，本次请求不会使用登录态。")
 
         self.thread = QThread()
         self.worker = ExtractWorker(
