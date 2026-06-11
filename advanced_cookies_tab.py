@@ -23,7 +23,12 @@ COOKIE_BROWSERS = ["chrome", "edge", "firefox"]
 
 def build_cookie_access_tab(dialog) -> QWidget:
     page = QWidget()
-    page.setStyleSheet("QWidget { background: #ffffff; }")
+    page.setObjectName("cookieAccessPage")
+    page.setStyleSheet("""
+        QWidget#cookieAccessPage {
+            background: #ffffff;
+        }
+    """)
     layout = QVBoxLayout(page)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(14)
@@ -41,9 +46,13 @@ def build_cookie_access_tab(dialog) -> QWidget:
             border-radius: 8px;
         }
         QFrame#cookieOption {
-            background: #f9fbfd;
+            background: #ffffff;
             border: 1px solid #e1e7ef;
             border-radius: 7px;
+        }
+        QFrame#cookieOption QLabel,
+        QFrame#cookieOption QRadioButton {
+            background: transparent;
         }
         QRadioButton {
             color: #172033;
@@ -150,7 +159,7 @@ def cookie_option_widget(dialog, mode: str, radio: QRadioButton, description: st
     layout.setSpacing(4)
     desc_label = QLabel(description)
     desc_label.setWordWrap(True)
-    desc_label.setStyleSheet("color: #64748b; font-weight: 400;")
+    desc_label.setStyleSheet("color: #64748b; background: transparent; font-weight: 400;")
     desc_label.setCursor(Qt.CursorShape.PointingHandCursor)
     desc_label.installEventFilter(dialog)
     dialog.advanced_cookie_option_modes[desc_label] = mode

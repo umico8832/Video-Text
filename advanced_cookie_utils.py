@@ -43,9 +43,13 @@ def cookie_option_description(mode: str) -> str:
 def cookie_option_frame_style(selected: bool) -> str:
     return f"""
                 QFrame#cookieOption {{
-                    background: {'#eef6ff' if selected else '#f9fbfd'};
-                    border: 1px solid {'#60a5fa' if selected else '#e1e7ef'};
+                    background: {'#f5f9ff' if selected else '#ffffff'};
+                    border: 1px solid {'#7bb6ff' if selected else '#e1e7ef'};
                     border-radius: 7px;
+                }}
+                QFrame#cookieOption QLabel,
+                QFrame#cookieOption QRadioButton {{
+                    background: transparent;
                 }}
             """
 
@@ -54,6 +58,7 @@ def cookie_option_radio_style(selected: bool) -> str:
     return f"""
                     QRadioButton {{
                         color: {'#1d4ed8' if selected else '#172033'};
+                        background: transparent;
                         font-weight: 600;
                         spacing: 8px;
                     }}

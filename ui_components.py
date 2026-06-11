@@ -156,6 +156,9 @@ class QuickConfigCard(QFrame):
                 border: 1px solid #e2e8f0;
                 border-radius: 8px;
             }}
+            QFrame#statusCard QLabel {{
+                background: transparent;
+            }}
             {hover}
         """)
 
@@ -350,16 +353,16 @@ def create_status_card(
     text_layout.setContentsMargins(0, 0, 0, 0)
     text_layout.setSpacing(3)
     title_label = QLabel(title)
-    title_label.setStyleSheet("color: #64748b; font-weight: 700;")
+    title_label.setStyleSheet("color: #64748b; background: transparent; font-weight: 700;")
     value_label.setWordWrap(True)
-    value_label.setStyleSheet("color: #172033; font-size: 14px; font-weight: 700;")
+    value_label.setStyleSheet("color: #172033; background: transparent; font-size: 14px; font-weight: 700;")
     header_layout = QHBoxLayout()
     header_layout.setContentsMargins(0, 0, 0, 0)
     header_layout.setSpacing(6)
     header_layout.addWidget(title_label, 1)
     if action_text:
         action_label = QLabel(action_text)
-        action_label.setStyleSheet("color: #2563eb; font-size: 12px; font-weight: 700;")
+        action_label.setStyleSheet("color: #2563eb; background: transparent; font-size: 12px; font-weight: 700;")
         header_layout.addWidget(action_label, 0, Qt.AlignmentFlag.AlignRight)
         card.add_click_target(action_label)
     text_layout.addLayout(header_layout)
