@@ -28,6 +28,7 @@ from advanced_cookie_utils import (
 )
 from advanced_env_tab import build_environment_tab as create_environment_tab
 from advanced_model_tab import build_model_run_tab as create_model_run_tab
+from advanced_model_utils import model_action_status, run_info_status, status_label_style
 from env_checker import (
     build_env_summary,
     format_env_report,
@@ -37,7 +38,6 @@ from model_config import (
     get_model_description,
     is_preset_model,
     is_local_model_choice,
-    is_valid_model_dir,
     resolve_selected_model,
 )
 from settings_manager import DEFAULT_MODEL_DIR
@@ -430,40 +430,17 @@ class AdvancedSettingsDialog(QDialog):
         self.advanced_model_info.setPlainText(
             get_model_description(selected_value, cuda_ok=self.main_window.cuda_ok)
         )
-        if is_local:
-            local_dir = self.advanced_local_model_input.text().strip()
-            if not local_dir:
-                status = "请选择本地模型目录。"
-            elif is_valid_model_dir(local_dir):
-                status = "本地模型目录可用。"
-            elif Path(local_dir).is_dir():
-                status = "本地模型目录缺少基本模型文件。"
-            else:
-                status = "本地模型目录不存在。"
-            self.advanced_action_status.setText(status)
-        elif selected_value:
-            status = "已部署，可离线使用。" if selected_value in self.main_window.deployed_models else "未部署，可点击下载/部署。"
-            self.advanced_action_status.setText(status)
-        else:
-            self.advanced_action_status.setText("请选择 Whisper 模型。")
+        self.advanced_action_status.setText(
+            model_action_status(
+                selected_value,
+                self.advanced_local_model_input.text(),
+                self.main_window.deployed_models,
+            )
+        )
 
     def set_status_label(self, label: QLabel, text: str, state: str = "unknown") -> None:
-        colors = {
-            "ok": ("#166534", "#dcfce7", "#bbf7d0"),
-            "bad": ("#b91c1c", "#fee2e2", "#fecaca"),
-            "pending": ("#475569", "#f1f5f9", "#e2e8f0"),
-            "unknown": ("#334155", "#ffffff", "#e2e8f0"),
-        }
-        color, bg, border = colors.get(state, colors["unknown"])
         label.setText(text)
-        label.setStyleSheet(f"""
-            color: {color};
-            background: {bg};
-            border: 1px solid {border};
-            border-radius: 7px;
-            padding: 8px 10px;
-            font-weight: 500;
-        """)
+        label.setStyleSheet(status_label_style(state))
 
     def set_run_info_pending(self, action: str = "检测中") -> None:
         if not hasattr(self, "whisper_status_label"):
@@ -475,25 +452,10 @@ class AdvancedSettingsDialog(QDialog):
     def update_run_info(self, report: dict | None) -> None:
         if not hasattr(self, "whisper_status_label"):
             return
-        whisper = (report or {}).get("whisper") or {}
-        cuda = (report or {}).get("cuda") or {}
-        whisper_ok = whisper.get("ok")
-        cuda_ok = cuda.get("ok")
-        self.set_status_label(
-            self.whisper_status_label,
-            f"语音识别：{'可用' if whisper_ok else '不可用' if whisper else '未检测'}",
-            "ok" if whisper_ok else "bad" if whisper else "unknown",
-        )
-        self.set_status_label(
-            self.cuda_status_label,
-            f"GPU 加速：{'可用' if cuda_ok else '不可用' if cuda else '未检测'}",
-            "ok" if cuda_ok else "bad" if cuda else "unknown",
-        )
-        self.set_status_label(
-            self.whisper_version_label,
-            f"faster-whisper 版本：{whisper.get('version') or '未知'}",
-            "unknown",
-        )
+        whisper, cuda, version = run_info_status(report)
+        self.set_status_label(self.whisper_status_label, *whisper)
+        self.set_status_label(self.cuda_status_label, *cuda)
+        self.set_status_label(self.whisper_version_label, *version)
 
     def deploy_selected_model(self) -> None:
         if self.thread is not None:
