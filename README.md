@@ -268,6 +268,18 @@ outputs/
 .\.venv\Scripts\python.exe -m unittest -v
 ```
 
+预览清理本地构建产物、日志和 Python 缓存：
+
+```powershell
+.\scripts\clean.ps1 -WhatIf
+```
+
+执行清理：
+
+```powershell
+.\scripts\clean.ps1
+```
+
 构建 Windows 启动器：
 
 ```powershell
