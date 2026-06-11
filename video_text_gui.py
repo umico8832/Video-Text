@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import re
 import sys
-import time
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QThread, Qt, QTimer
@@ -38,6 +36,7 @@ from env_checker import (
     build_env_summary,
     format_env_report,
 )
+from gui_log_utils import clean_log_text, failure_summary, timestamp
 from model_picker_dialog import ModelPickerDialog
 from ui_components import (
     NoWheelComboBox,
@@ -79,30 +78,6 @@ from workers import EnvWorker, ExtractWorker, ModelDeployWorker
 ROOT = Path(__file__).resolve().parent
 
 from advanced_settings_dialog import AdvancedSettingsDialog, COOKIE_BROWSERS, COOKIE_MODES
-
-
-def timestamp() -> str:
-    return time.strftime("%H:%M:%S")
-
-
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-
-
-def clean_log_text(message: str) -> str:
-    return ANSI_RE.sub("", message)
-
-
-def failure_summary(message: str) -> str:
-    first_line = next((line.strip() for line in message.splitlines() if line.strip()), message.strip())
-    if first_line.startswith("Bilibili 获取失败"):
-        return "Bilibili 获取失败"
-    if first_line.startswith("读取 Chrome Cookie 失败"):
-        return "读取 Chrome Cookie 失败"
-    if first_line.startswith("读取 Edge Cookie 失败"):
-        return "读取 Edge Cookie 失败"
-    if first_line.startswith("读取 Firefox Cookie 失败"):
-        return "读取 Firefox Cookie 失败"
-    return first_line.rstrip("。")
 
 
 def selected_cookie_browser(combo: NoWheelComboBox) -> str:
