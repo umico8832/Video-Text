@@ -4,6 +4,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from gpu_runtime import ensure_nvidia_library_path
+
+ensure_nvidia_library_path()
+
 import ctranslate2
 
 from subtitle_parser import clean_lines
