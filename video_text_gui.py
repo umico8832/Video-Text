@@ -39,7 +39,7 @@ from env_checker import (
 from gui_app_utils import configure_app_font
 import gui_confirmations
 from gui_cookie_utils import selected_cookie_browser
-from gui_log_utils import clean_log_text, failure_summary, timestamp
+from gui_log_utils import clean_log_text, failure_summary, parse_failure_log, timestamp
 from gui_model_utils import device_display_text, model_summary_text, selected_model_status
 from gui_status_utils import status_badge_state, status_from_log
 from model_picker_dialog import ModelPickerDialog
@@ -922,30 +922,13 @@ class MainWindow(QMainWindow):
             self.refresh_pending_extract_model_download()
 
     def append_failure_log(self, message: str) -> None:
-        message = clean_log_text(message).strip()
-        lines = [line.strip() for line in message.splitlines() if line.strip()]
-        reason = lines[0] if lines else "未知错误"
-        suggestions: list[str] = []
-        details: list[str] = []
-        target: list[str] | None = None
-        for line in lines[1:]:
-            if line == "建议：":
-                target = suggestions
-                continue
-            if line.startswith("详情："):
-                target = details
-                detail = line.removeprefix("详情：").strip()
-                if detail:
-                    details.append(detail)
-                continue
-            if target is not None:
-                target.append(line)
+        failure = parse_failure_log(message)
         self.append_log("提取失败。")
-        self.append_log(f"原因：{reason}")
-        if suggestions:
-            self.append_log("建议：" + "\n" + "\n".join(suggestions))
-        if details:
-            self.append_log("详情：" + "\n" + "\n".join(details))
+        self.append_log(f"原因：{failure.reason}")
+        if failure.suggestions:
+            self.append_log("建议：" + "\n" + "\n".join(failure.suggestions))
+        if failure.details:
+            self.append_log("详情：" + "\n" + "\n".join(failure.details))
 
     def append_log_separator(self) -> None:
         self.log_view.appendPlainText("------------------------------")
