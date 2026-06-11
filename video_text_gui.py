@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QThread, Qt, QTimer
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase
+from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -36,6 +36,7 @@ from env_checker import (
     build_env_summary,
     format_env_report,
 )
+from gui_app_utils import configure_app_font
 from gui_log_utils import clean_log_text, failure_summary, timestamp
 from model_picker_dialog import ModelPickerDialog
 from ui_components import (
@@ -88,23 +89,6 @@ def selected_cookie_browser(combo: NoWheelComboBox) -> str:
     if 0 <= index < len(COOKIE_BROWSERS):
         return COOKIE_BROWSERS[index]
     return "chrome"
-
-
-def configure_app_font(app: QApplication) -> None:
-    families = set(QFontDatabase.families())
-    preferred = [
-        "Noto Sans CJK SC",
-        "Noto Sans CJK",
-        "Microsoft YaHei UI",
-        "Microsoft YaHei",
-        "SimHei",
-        "WenQuanYi Micro Hei",
-        "Source Han Sans SC",
-    ]
-    for family in preferred:
-        if family in families:
-            app.setFont(QFont(family, 10))
-            return
 
 
 class MainWindow(QMainWindow):
