@@ -54,7 +54,7 @@ COOKIE_MODES = [
 
 
 class AdvancedSettingsDialog(QDialog):
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: "MainWindow", auto_detect: bool = True):
         super().__init__(main_window)
         self.main_window = main_window
         self.thread: QThread | None = None
@@ -68,7 +68,8 @@ class AdvancedSettingsDialog(QDialog):
         self.build_ui()
         self.connect_model_run_sync()
         self.connect_cookie_access_sync()
-        QTimer.singleShot(0, self.run_detection)
+        if auto_detect:
+            QTimer.singleShot(0, self.run_detection)
 
     def build_ui(self) -> None:
         self.setStyleSheet("""

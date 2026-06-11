@@ -85,7 +85,7 @@ from advanced_settings_dialog import AdvancedSettingsDialog, COOKIE_BROWSERS, CO
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, auto_check: bool = True):
         super().__init__()
         self.setWindowTitle("视频字幕提取")
         self.resize(1180, 820)
@@ -111,7 +111,8 @@ class MainWindow(QMainWindow):
         self.build_ui()
         self.load_settings()
         self.refresh_buttons()
-        QTimer.singleShot(200, lambda: self.run_env_task("check", autosave=False))
+        if auto_check:
+            QTimer.singleShot(200, lambda: self.run_env_task("check", autosave=False))
 
     def build_ui(self) -> None:
         root = QWidget()
