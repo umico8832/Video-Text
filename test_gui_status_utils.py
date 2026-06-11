@@ -1,6 +1,6 @@
 import unittest
 
-from gui_status_utils import status_from_log
+from gui_status_utils import FAILED_COLOR, NEUTRAL_COLOR, READY_COLOR, status_badge_state, status_from_log
 
 
 class GuiStatusUtilsTest(unittest.TestCase):
@@ -18,6 +18,28 @@ class GuiStatusUtilsTest(unittest.TestCase):
 
     def test_status_from_unknown_log(self):
         self.assertIsNone(status_from_log("普通日志"))
+
+    def test_status_badge_state_prefers_ready_when_not_failed(self):
+        self.assertEqual(
+            status_badge_state("环境状态：已就绪", "当前状态：准备就绪"),
+            ("已就绪", READY_COLOR),
+        )
+
+    def test_status_badge_state_marks_failure(self):
+        self.assertEqual(
+            status_badge_state("环境状态：环境未就绪", "当前状态：准备就绪"),
+            ("环境未就绪", FAILED_COLOR),
+        )
+        self.assertEqual(
+            status_badge_state("环境状态：未检查", "当前状态：提取失败：网络错误"),
+            ("提取失败：网络错误", FAILED_COLOR),
+        )
+
+    def test_status_badge_state_uses_current_status_when_env_unchecked(self):
+        self.assertEqual(
+            status_badge_state("环境状态：未检查", "当前状态：正在获取视频信息"),
+            ("正在获取视频信息", NEUTRAL_COLOR),
+        )
 
 
 if __name__ == "__main__":

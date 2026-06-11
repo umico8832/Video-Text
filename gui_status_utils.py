@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 
+READY_COLOR = "#16a34a"
+FAILED_COLOR = "#dc2626"
+NEUTRAL_COLOR = "#172033"
+
+
 def status_from_log(message: str) -> str | None:
     if "开始环境检查" in message or "环境检查线程已启动" in message:
         return "环境检查中"
@@ -29,3 +34,13 @@ def status_from_log(message: str) -> str | None:
     if "字幕文本已保存到" in message:
         return "正在保存结果"
     return None
+
+
+def status_badge_state(env_status_text: str, current_status_text: str) -> tuple[str, str]:
+    env_text = env_status_text.replace("环境状态：", "").strip()
+    state_text = current_status_text.replace("当前状态：", "").strip()
+    ready = "就绪" in env_text or "准备就绪" in state_text
+    failed = "未就绪" in env_text or "失败" in state_text or "缺少" in state_text
+    color = READY_COLOR if ready and not failed else FAILED_COLOR if failed else NEUTRAL_COLOR
+    summary = env_text if env_text and env_text != "未检查" else state_text
+    return summary or "未检查", color

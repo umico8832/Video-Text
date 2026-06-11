@@ -41,7 +41,7 @@ import gui_confirmations
 from gui_cookie_utils import selected_cookie_browser
 from gui_log_utils import clean_log_text, failure_summary, timestamp
 from gui_model_utils import device_display_text, model_summary_text, selected_model_status
-from gui_status_utils import status_from_log
+from gui_status_utils import status_badge_state, status_from_log
 from model_picker_dialog import ModelPickerDialog
 from ui_components import (
     NoWheelComboBox,
@@ -725,13 +725,8 @@ class MainWindow(QMainWindow):
     def update_status_badge(self) -> None:
         if not hasattr(self, "env_value_label"):
             return
-        env_text = self.env_status.text().replace("环境状态：", "").strip()
-        state_text = self.result_label.text().replace("当前状态：", "").strip()
-        ready = "就绪" in env_text or "准备就绪" in state_text
-        failed = "未就绪" in env_text or "失败" in state_text or "缺少" in state_text
-        color = "#16a34a" if ready and not failed else "#dc2626" if failed else "#172033"
-        summary = env_text if env_text and env_text != "未检查" else state_text
-        self.env_value_label.setText(summary or "未检查")
+        summary, color = status_badge_state(self.env_status.text(), self.result_label.text())
+        self.env_value_label.setText(summary)
         self.env_value_label.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: 700;")
 
     def update_model_summary(self) -> None:
