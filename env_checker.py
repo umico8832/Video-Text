@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from process_utils import subprocess_hidden_kwargs
+
 
 ROOT = Path(__file__).resolve().parent
 REQUIRED_ENV_KEYS = ("ffmpeg", "yt-dlp", "whisper")
@@ -18,16 +20,6 @@ IS_WINDOWS = platform.system() == "Windows"
 
 LogCallback = Callable[[str], None]
 SENSITIVE_COMMAND_MARKERS = ("token", "password", "passwd", "secret", "cookie")
-
-
-def subprocess_hidden_kwargs() -> dict:
-    if not IS_WINDOWS:
-        return {}
-    if hasattr(subprocess, "CREATE_NO_WINDOW"):
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    return {"startupinfo": startupinfo}
 
 
 def path_exists(value: str | None) -> bool:

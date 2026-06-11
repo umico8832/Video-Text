@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from process_utils import subprocess_hidden_kwargs
+
 
 APP_NAME = "视频字幕提取"
 PYTHON_VERSION = "3.12"
@@ -46,16 +48,6 @@ def configure_stdio() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
-
-
-def subprocess_hidden_kwargs() -> dict:
-    if os.name != "nt":
-        return {}
-    if hasattr(subprocess, "CREATE_NO_WINDOW"):
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    return {"startupinfo": startupinfo}
 
 
 def pause_on_failure() -> None:

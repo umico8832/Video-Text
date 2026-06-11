@@ -11,6 +11,8 @@ from urllib.request import Request, urlopen
 import imageio_ffmpeg
 import yt_dlp
 
+from process_utils import subprocess_hidden_kwargs
+
 
 ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = platform.system() == "Windows"
@@ -50,16 +52,6 @@ def resolve_yt_dlp_path(yt_dlp_path: str | None = None) -> str | None:
     if local.exists():
         return str(local)
     return shutil.which("yt-dlp")
-
-
-def subprocess_hidden_kwargs() -> dict:
-    if not IS_WINDOWS:
-        return {}
-    if hasattr(subprocess, "CREATE_NO_WINDOW"):
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    return {"startupinfo": startupinfo}
 
 
 def should_use_yt_dlp_executable(yt_dlp_path: str | None = None) -> bool:
