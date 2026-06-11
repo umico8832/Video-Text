@@ -40,6 +40,7 @@ from gui_app_utils import configure_app_font
 import gui_confirmations
 from gui_cookie_utils import selected_cookie_browser
 from gui_log_utils import clean_log_text, failure_summary, timestamp
+from gui_model_utils import device_display_text, model_summary_text, selected_model_status
 from gui_status_utils import status_from_log
 from model_picker_dialog import ModelPickerDialog
 from ui_components import (
@@ -61,7 +62,6 @@ from model_config import (
     is_english_only_model,
     is_local_model_choice,
     is_preset_model,
-    is_valid_model_dir,
     resolve_model_for_runtime,
     resolve_model_from_settings,
     resolve_selected_model,
@@ -707,8 +707,7 @@ class MainWindow(QMainWindow):
         if self.loading_settings:
             return
         mode = self.device_combo.currentText()
-        mode_text = {"auto": "自动选择", "cuda": "GPU 加速", "cpu": "CPU 模式"}.get(mode, mode)
-        self.append_log(f"已切换运行方式：{mode_text}")
+        self.append_log(f"已切换运行方式：{device_display_text(mode)}")
 
     def update_collapsible_geometry(self, widget: QWidget) -> None:
         layout = widget.layout()
@@ -740,20 +739,16 @@ class MainWindow(QMainWindow):
             return
         model_name = self.model_combo.currentData()
         device = self.device_combo.currentText()
-        if is_local_model_choice(model_name):
-            local_dir = self.local_model_input.text().strip()
-            model_text = "本地模型" if local_dir else "本地模型未选择"
-        elif model_name:
-            status = "已部署" if model_name in self.deployed_models else "未部署"
-            model_text = f"{model_name}（{status}）"
-        else:
-            model_text = "未选择识别模型"
+        model_text = model_summary_text(
+            model_name,
+            self.local_model_input.text(),
+            self.deployed_models,
+        )
         self.model_summary_label.setText(f"模型：{model_text}\n设备：{device}")
         if hasattr(self, "model_value_label"):
             self.model_value_label.setText(model_text)
         if hasattr(self, "device_value_label"):
-            device_text = "CPU 模式" if device == "cpu" else "GPU 模式" if device == "cuda" else "自动选择"
-            self.device_value_label.setText(device_text)
+            self.device_value_label.setText(device_display_text(device))
         self.update_footer_summary(model_text, device)
 
     def update_footer_summary(self, model_text: str | None = None, device: str | None = None) -> None:
@@ -762,14 +757,11 @@ class MainWindow(QMainWindow):
         if model_text is None or device is None:
             model_name = self.model_combo.currentData()
             device = self.device_combo.currentText()
-            if is_local_model_choice(model_name):
-                local_dir = self.local_model_input.text().strip()
-                model_text = "本地模型" if local_dir else "本地模型未选择"
-            elif model_name:
-                status = "已部署" if model_name in self.deployed_models else "未部署"
-                model_text = f"{model_name}（{status}）"
-            else:
-                model_text = "未选择识别模型"
+            model_text = model_summary_text(
+                model_name,
+                self.local_model_input.text(),
+                self.deployed_models,
+            )
         self.footer_summary_label.setText(f"Whisper 模型：{model_text}  |  设备：{device}")
 
     def update_model_info(self) -> None:
@@ -780,18 +772,13 @@ class MainWindow(QMainWindow):
         self.local_model_pick_btn.setVisible(is_local)
         self.model_info_label.setText(get_model_description(model_name, cuda_ok=self.cuda_ok))
         self.update_model_summary()
-        if is_local:
-            local_dir = self.local_model_input.text().strip()
-            if not local_dir:
-                self.set_status("未检查")
-            elif is_valid_model_dir(local_dir):
-                self.set_status("本地模型目录可用")
-            elif Path(local_dir).is_dir():
-                self.set_status("本地模型目录缺少基本模型文件")
-            else:
-                self.set_status("本地模型目录不存在")
-        elif is_preset_model(model_name):
-            self.set_status("已部署" if model_name in self.deployed_models else "未部署")
+        status = selected_model_status(
+            model_name,
+            self.local_model_input.text(),
+            self.deployed_models,
+        )
+        if status is not None:
+            self.set_status(status)
 
     def refresh_model_choices(self) -> None:
         selected_value = self.model_combo.currentData()
