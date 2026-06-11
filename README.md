@@ -256,6 +256,18 @@ outputs/
 
 运行设置保存在项目目录的 `settings.json`，该文件不会提交到 Git。需要手动准备默认配置时，可以参考 `settings.example.json`。
 
+安装或更新开发依赖：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+运行测试：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest -v
+```
+
 构建 Windows 启动器：
 
 ```powershell

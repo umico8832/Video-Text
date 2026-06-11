@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from extract_subtitle import (
     build_output_path,
     choose_subtitle,
+    extract_existing_subtitle,
     format_download_error,
     get_info,
     parse_ass,
@@ -218,6 +219,39 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\pos(10,10)}第一行\\N第�
         )
 
         self.assertEqual(parse_json_subtitle(text), "嵌套文本\n更多文本\n")
+
+
+class ExistingSubtitleExtractionTest(unittest.TestCase):
+    @patch("extract_subtitle.download_subtitle")
+    def test_existing_subtitle_uses_output_directory_temp_file(self, download_subtitle):
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "custom-output"
+            output_path = output_dir / "视频.BV123.txt"
+
+            def write_subtitle(_entry, target):
+                target.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n你好\n", encoding="utf-8")
+
+            download_subtitle.side_effect = write_subtitle
+
+            result = extract_existing_subtitle(
+                {
+                    "subtitles": {
+                        "zh-CN": [
+                            {
+                                "ext": "vtt",
+                                "url": "https://example.test/subtitle.vtt",
+                            }
+                        ]
+                    }
+                },
+                "视频",
+                "BV123",
+                output_path,
+            )
+
+            self.assertEqual(result, output_path)
+            self.assertEqual(output_path.read_text(encoding="utf-8"), "你好\n")
+            self.assertFalse(list(output_dir.glob("subtitle-*")))
 
 
 class FilenameAndErrorFormatTest(unittest.TestCase):
