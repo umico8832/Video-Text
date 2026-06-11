@@ -38,7 +38,7 @@ from env_checker import (
 )
 from gui_app_utils import configure_app_font
 import gui_confirmations
-from gui_cookie_utils import selected_cookie_browser
+from gui_cookie_utils import build_cookie_request, cookie_mode_label, selected_cookie_browser
 from gui_log_utils import clean_log_text, failure_summary, parse_failure_log, timestamp
 from gui_model_utils import device_display_text, model_summary_text, selected_model_status
 from gui_status_utils import status_badge_state, status_from_log
@@ -834,8 +834,7 @@ class MainWindow(QMainWindow):
         if self.loading_settings:
             return
         mode = self.cookie_mode_combo.currentData()
-        label = next((item["label"] for item in COOKIE_MODES if item["name"] == mode), mode or "未知")
-        self.append_log(f"Cookies 模式已切换为：{label}")
+        self.append_log(f"Cookies 模式已切换为：{cookie_mode_label(COOKIE_MODES, mode)}")
 
     def load_settings(self) -> None:
         self.loading_settings = True
@@ -1063,31 +1062,21 @@ class MainWindow(QMainWindow):
         self.set_status("正在启动字幕提取")
         self.refresh_buttons(True)
 
-        cookie_mode = self.cookie_mode_combo.currentData()
-        cookies_from_browser = None
-        cookies = self.cookies_input.text()
-        if cookie_mode == "browser":
-            cookies_from_browser = selected_cookie_browser(self.cookie_browser_combo, COOKIE_BROWSERS)
-            cookies = ""
-            self.append_log(f"正在尝试从浏览器 {cookies_from_browser.title()} 读取 Cookies...")
-        elif cookie_mode == "file":
-            cookies = self.cookies_input.text()
-            if cookies.strip():
-                self.append_log(f"已选择 cookies.txt 文件：{Path(cookies).name or 'cookies.txt'}，本次请求将使用该文件。")
-            else:
-                self.append_log("已选择 cookies.txt 文件模式，但尚未填写文件路径。")
-        else:
-            cookies = ""
-            self.append_log("未启用 Cookies，本次请求不会使用登录态。")
+        cookie_request = build_cookie_request(
+            self.cookie_mode_combo.currentData(),
+            self.cookies_input.text(),
+            selected_cookie_browser(self.cookie_browser_combo, COOKIE_BROWSERS),
+        )
+        self.append_log(cookie_request.log_message)
 
         worker = ExtractWorker(
             url=url,
             model=runtime_model.model,
             device=self.device_combo.currentText(),
-            cookies=cookies,
+            cookies=cookie_request.cookies,
             ffmpeg=self.ffmpeg_input.text(),
             yt_dlp=self.ytdlp_input.text(),
-            cookies_from_browser=cookies_from_browser,
+            cookies_from_browser=cookie_request.cookies_from_browser,
             output_dir=self.selected_output_dir(),
             model_display_name=runtime_model.display_name,
             model_is_local=runtime_model.is_local,
