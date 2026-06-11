@@ -37,6 +37,7 @@ from env_checker import (
     format_env_report,
 )
 from gui_app_utils import configure_app_font
+from gui_cookie_utils import selected_cookie_browser
 from gui_log_utils import clean_log_text, failure_summary, timestamp
 from model_picker_dialog import ModelPickerDialog
 from ui_components import (
@@ -79,16 +80,6 @@ from workers import EnvWorker, ExtractWorker, ModelDeployWorker
 ROOT = Path(__file__).resolve().parent
 
 from advanced_settings_dialog import AdvancedSettingsDialog, COOKIE_BROWSERS, COOKIE_MODES
-
-
-def selected_cookie_browser(combo: NoWheelComboBox) -> str:
-    browser = combo.currentData()
-    if browser:
-        return str(browser).lower()
-    index = combo.currentIndex()
-    if 0 <= index < len(COOKIE_BROWSERS):
-        return COOKIE_BROWSERS[index]
-    return "chrome"
 
 
 class MainWindow(QMainWindow):
@@ -963,7 +954,7 @@ class MainWindow(QMainWindow):
             "model_dir": self.model_dir,
             "device": self.device_combo.currentText(),
             "cookie_mode": self.cookie_mode_combo.currentData(),
-            "cookies_browser": selected_cookie_browser(self.cookie_browser_combo),
+            "cookies_browser": selected_cookie_browser(self.cookie_browser_combo, COOKIE_BROWSERS),
             "selected_model": self.model_combo.currentData(),
             "local_model": self.local_model_input.text(),
         })
@@ -1173,7 +1164,7 @@ class MainWindow(QMainWindow):
         cookies_from_browser = None
         cookies = self.cookies_input.text()
         if cookie_mode == "browser":
-            cookies_from_browser = selected_cookie_browser(self.cookie_browser_combo)
+            cookies_from_browser = selected_cookie_browser(self.cookie_browser_combo, COOKIE_BROWSERS)
             cookies = ""
             self.append_log(f"正在尝试从浏览器 {cookies_from_browser.title()} 读取 Cookies...")
         elif cookie_mode == "file":
