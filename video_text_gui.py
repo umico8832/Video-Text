@@ -37,6 +37,7 @@ from env_checker import (
     format_env_report,
 )
 from gui_app_utils import configure_app_font
+import gui_confirmations
 from gui_cookie_utils import selected_cookie_browser
 from gui_log_utils import clean_log_text, failure_summary, timestamp
 from gui_status_utils import status_from_log
@@ -667,58 +668,18 @@ class MainWindow(QMainWindow):
             )
 
     def confirm_model_deploy(self, model_name: str, model_source: str) -> bool:
-        models_dir = self.selected_models_dir()
-        message_box = QMessageBox(self)
-        message_box.setIcon(QMessageBox.Icon.Question)
-        message_box.setWindowTitle("确认下载/部署模型")
-        if model_source == "preset":
-            message_box.setText(f"即将下载/部署 Whisper 模型：{model_name}")
-            message_box.setInformativeText(
-                "该操作可能需要联网，并占用一定磁盘空间。\n"
-                f"模型将保存到：{models_dir}\n\n"
-                "是否继续？"
-            )
-        else:
-            message_box.setText(f"即将检查本地 Whisper 模型目录：{model_name}")
-            message_box.setInformativeText(
-                "该操作不会下载模型，只会检查所选目录是否可用。\n\n"
-                "是否继续？"
-            )
-        continue_button = message_box.addButton("继续部署", QMessageBox.ButtonRole.AcceptRole)
-        message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        message_box.exec()
-        return message_box.clickedButton() is continue_button
+        return gui_confirmations.confirm_model_deploy(
+            self,
+            model_name,
+            model_source,
+            self.selected_models_dir(),
+        )
 
     def confirm_gpu_install(self) -> bool:
-        message_box = QMessageBox(self)
-        message_box.setIcon(QMessageBox.Icon.Question)
-        message_box.setWindowTitle("确认安装 GPU 加速组件")
-        message_box.setText("即将安装 GPU 加速组件。")
-        message_box.setInformativeText(
-            "该操作会安装 NVIDIA CUDA 相关 Python 包，适用于 NVIDIA 显卡用户。\n"
-            "它不会安装显卡驱动，也不会保证所有 CUDA 环境问题都能自动修复。\n"
-            "安装可能耗时，并会修改当前 Python 虚拟环境。\n\n"
-            "是否继续？"
-        )
-        continue_button = message_box.addButton("继续安装", QMessageBox.ButtonRole.AcceptRole)
-        message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        message_box.exec()
-        return message_box.clickedButton() is continue_button
+        return gui_confirmations.confirm_gpu_install(self)
 
     def confirm_ytdlp_update(self) -> bool:
-        message_box = QMessageBox(self)
-        message_box.setIcon(QMessageBox.Icon.Question)
-        message_box.setWindowTitle("确认更新 yt-dlp")
-        message_box.setText("即将更新 yt-dlp 下载组件。")
-        message_box.setInformativeText(
-            "该操作可能需要联网，只会更新 yt-dlp，不会更新 FFmpeg。\n"
-            "如果当前使用的是手动指定的外部 yt-dlp，请确认是否继续。\n\n"
-            "是否继续？"
-        )
-        continue_button = message_box.addButton("继续更新", QMessageBox.ButtonRole.AcceptRole)
-        message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        message_box.exec()
-        return message_box.clickedButton() is continue_button
+        return gui_confirmations.confirm_ytdlp_update(self)
 
     def update_ytdlp_with_confirmation(self) -> None:
         if not self.confirm_ytdlp_update():
@@ -1105,17 +1066,7 @@ class MainWindow(QMainWindow):
             self.append_log_separator()
             self.append_log(f"未检测到本地 Whisper 模型：{runtime_model.display_name}")
             prompt_logged = True
-            message_box = QMessageBox(self)
-            message_box.setIcon(QMessageBox.Icon.Question)
-            message_box.setWindowTitle("需要下载 Whisper 模型")
-            message_box.setText(f"当前未检测到本地 Whisper 模型：{runtime_model.display_name}。")
-            message_box.setInformativeText(
-                "继续识别需要下载该模型，可能占用一定时间和磁盘空间。\n是否现在下载并继续？"
-            )
-            download_button = message_box.addButton("下载并继续", QMessageBox.ButtonRole.AcceptRole)
-            message_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-            message_box.exec()
-            if message_box.clickedButton() is not download_button:
+            if not gui_confirmations.confirm_missing_model_download(self, runtime_model.display_name):
                 self.append_log("已取消：未下载 Whisper 模型，识别任务未开始。")
                 self.set_status("已取消")
                 self.refresh_buttons(False)
