@@ -92,6 +92,7 @@ class ExtractWorker(QObject):
         model_is_local: bool | None = None,
         model_download_name: str | None = None,
         model_download_dir: str | None = None,
+        subtitle_language: str = "zh",
     ):
         super().__init__()
         self.url = url
@@ -106,6 +107,7 @@ class ExtractWorker(QObject):
         self.model_is_local = model_is_local
         self.model_download_name = model_download_name
         self.model_download_dir = model_download_dir
+        self.subtitle_language = subtitle_language
 
     def run(self) -> None:
         try:
@@ -125,6 +127,7 @@ class ExtractWorker(QObject):
                 model_is_local=self.model_is_local,
                 model_download_name=self.model_download_name,
                 model_download_dir=self.model_download_dir,
+                subtitle_language=self.subtitle_language,
             )
             self.done.emit(True, str(result))
         except Exception as exc:

@@ -47,6 +47,21 @@ ZH_ALIASES = (
     "繁体",
 )
 
+EN_ALIASES = (
+    "en",
+    "en-us",
+    "en-gb",
+    "en-au",
+    "en-ca",
+    "eng",
+    "english",
+)
+
+SUBTITLE_LANGUAGE_LABELS = {
+    "zh": "中文字幕",
+    "en": "英文字幕",
+}
+
 SUBTITLE_EXT_PRIORITY = {
     "srt": 0,
     "vtt": 1,
@@ -356,23 +371,34 @@ def get_info(
         return ydl.extract_info(url, download=False)
 
 
-def lang_score(lang: str) -> int | None:
+def subtitle_language_aliases(language: str | None) -> tuple[str, ...]:
+    return EN_ALIASES if language == "en" else ZH_ALIASES
+
+
+def subtitle_language_label(language: str | None) -> str:
+    return SUBTITLE_LANGUAGE_LABELS.get(language or "zh", "目标语言字幕")
+
+
+def lang_score(lang: str, language: str | None = "zh") -> int | None:
     normalized = lang.lower()
     if normalized == "danmaku":
         return None
-    for idx, alias in enumerate(ZH_ALIASES):
+    for idx, alias in enumerate(subtitle_language_aliases(language)):
         if alias in normalized:
             return idx
     return None
 
 
-def choose_subtitle(info: dict[str, Any]) -> tuple[str, dict[str, Any], str] | None:
+def choose_subtitle(
+    info: dict[str, Any],
+    language: str | None = "zh",
+) -> tuple[str, dict[str, Any], str] | None:
     candidates: list[tuple[int, int, int, str, dict[str, Any], str]] = []
 
     for source_name, source_priority in (("subtitles", 0), ("automatic_captions", 1)):
         subtitles = info.get(source_name) or {}
         for lang, entries in subtitles.items():
-            score = lang_score(lang)
+            score = lang_score(lang, language)
             if score is None:
                 continue
             for entry in entries or []:
@@ -419,7 +445,8 @@ def clean_lines(lines: list[str]) -> str:
 def parse_vtt_or_srt(text: str) -> str:
     lines: list[str] = []
     skip_block = False
-    for raw_line in text.splitlines():
+    raw_lines = text.splitlines()
+    for index, raw_line in enumerate(raw_lines):
         line = raw_line.strip("\ufeff").strip()
         if not line:
             skip_block = False
@@ -433,7 +460,9 @@ def parse_vtt_or_srt(text: str) -> str:
             continue
         if "-->" in line:
             continue
-        if re.fullmatch(r"[a-zA-Z0-9_-]+", line) and not re.search(r"[\u4e00-\u9fff]", line):
+        following_lines = (item.strip() for item in raw_lines[index + 1 :])
+        next_non_empty = next((item for item in following_lines if item), "")
+        if re.fullmatch(r"[a-zA-Z0-9_-]+", line) and "-->" in next_non_empty:
             continue
         lines.append(line)
     return clean_lines(lines)
@@ -617,6 +646,7 @@ def transcribe_audio(
     log_callback: LogCallback | None = None,
     model_display_name: str | None = None,
     model_is_local: bool | None = None,
+    language: str = "zh",
 ) -> str:
     try:
         from faster_whisper import WhisperModel
@@ -650,7 +680,7 @@ def transcribe_audio(
     try:
         segments, info = model.transcribe(
             str(audio_path),
-            language="zh",
+            language=language,
             vad_filter=True,
             beam_size=5,
         )
@@ -662,7 +692,7 @@ def transcribe_audio(
             model = WhisperModel(model_name, device="cpu", compute_type="int8")
             segments, info = model.transcribe(
                 str(audio_path),
-                language="zh",
+                language=language,
                 vad_filter=True,
                 beam_size=5,
             )
@@ -751,16 +781,18 @@ def extract_existing_subtitle(
     video_id: str,
     output_path: Path,
     log_callback: LogCallback | None = None,
+    subtitle_language: str = "zh",
 ) -> Path | None:
-    log("正在查找视频自带中文字幕...", log_callback)
-    selected = choose_subtitle(info)
+    language_label = subtitle_language_label(subtitle_language)
+    log(f"正在查找视频自带{language_label}...", log_callback)
+    selected = choose_subtitle(info, subtitle_language)
     if not selected:
         return None
 
     lang, entry, source_name = selected
     ext = (entry.get("ext") or "vtt").lower()
     source_label = "人工字幕" if source_name == "subtitles" else "自动字幕"
-    log(f"已找到视频自带中文字幕：{source_label} {lang} / {ext}，开始下载字幕...", log_callback)
+    log(f"已找到视频自带{language_label}：{source_label} {lang} / {ext}，开始下载字幕...", log_callback)
     raw_path = OUTPUT_DIR / f"{title}.{video_id}.{lang}.{ext}"
     try:
         download_subtitle(entry, raw_path)
@@ -786,8 +818,10 @@ def transcribe_missing_subtitle(
     model_is_local: bool | None = None,
     model_download_name: str | None = None,
     model_download_dir: str | Path | None = None,
+    whisper_language: str = "zh",
 ) -> Path:
-    log("未找到可用中文字幕，开始下载音频并准备语音识别...", log_callback)
+    language_label = subtitle_language_label(whisper_language)
+    log(f"未找到可用{language_label}，开始下载音频并准备语音识别...", log_callback)
     model_name = (model or "").strip()
     if not model_name:
         raise RuntimeError(MISSING_WHISPER_MODEL_MESSAGE)
@@ -834,6 +868,7 @@ def transcribe_missing_subtitle(
             log_callback=log_callback,
             model_display_name=model_display_name,
             model_is_local=model_is_local,
+            language=whisper_language,
         )
         try:
             output_path.write_text(text, encoding="utf-8")
@@ -858,6 +893,7 @@ def extract(
     model_is_local: bool | None = None,
     model_download_name: str | None = None,
     model_download_dir: str | Path | None = None,
+    subtitle_language: str = "zh",
 ) -> Path:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -882,7 +918,14 @@ def extract(
     log_cookie_usage(cookies, cookies_from_browser, log_callback)
     title, video_id, output_path = build_output_path(info, output_dir)
 
-    subtitle_output = extract_existing_subtitle(info, title, video_id, output_path, log_callback)
+    subtitle_output = extract_existing_subtitle(
+        info,
+        title,
+        video_id,
+        output_path,
+        log_callback,
+        subtitle_language=subtitle_language,
+    )
     if subtitle_output is not None:
         return subtitle_output
 
@@ -901,11 +944,12 @@ def extract(
         model_is_local=model_is_local,
         model_download_name=model_download_name,
         model_download_dir=model_download_dir,
+        whisper_language=subtitle_language,
     )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="从 B 站 / YouTube 视频提取中文字幕纯文本")
+    parser = argparse.ArgumentParser(description="从 B 站 / YouTube 视频提取字幕纯文本")
     parser.add_argument("url", nargs="?", help="视频链接；不传则进入交互输入")
     parser.add_argument("--model", default="large-v3", help="Whisper 模型，默认 large-v3")
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"], help="推理设备")
@@ -924,6 +968,9 @@ def main() -> int:
         return 1
 
     try:
+        from model_config import is_english_only_model
+
+        subtitle_language = "en" if is_english_only_model(args.model) else "zh"
         result = extract(
             url=url,
             model=args.model,
@@ -932,6 +979,7 @@ def main() -> int:
             cookies=args.cookies,
             ffmpeg_path=args.ffmpeg,
             yt_dlp_path=args.yt_dlp,
+            subtitle_language=subtitle_language,
         )
     except KeyboardInterrupt:
         print("\n已取消。")

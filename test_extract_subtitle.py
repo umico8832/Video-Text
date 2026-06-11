@@ -1,5 +1,8 @@
 import json
+import sys
+import types
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -13,6 +16,7 @@ from extract_subtitle import (
     parse_json_subtitle,
     parse_vtt_or_srt,
     sanitize_filename,
+    transcribe_audio,
 )
 
 
@@ -55,6 +59,82 @@ class SubtitleSelectionTest(unittest.TestCase):
 
         self.assertIsNone(selected)
 
+    def test_choose_subtitle_can_target_english(self):
+        zh_entry = {"ext": "srt", "url": "https://example.test/zh.srt"}
+        en_entry = {"ext": "vtt", "url": "https://example.test/en.vtt"}
+        selected = choose_subtitle(
+            {
+                "subtitles": {
+                    "zh-CN": [zh_entry],
+                    "en-US": [en_entry],
+                },
+            },
+            language="en",
+        )
+
+        self.assertEqual(selected, ("en-US", en_entry, "subtitles"))
+
+    def test_choose_subtitle_prefers_manual_english_over_auto(self):
+        manual_entry = {"ext": "vtt", "url": "https://example.test/manual.vtt"}
+        auto_entry = {"ext": "srt", "url": "https://example.test/auto.srt"}
+        selected = choose_subtitle(
+            {
+                "subtitles": {"en": [manual_entry]},
+                "automatic_captions": {"en": [auto_entry]},
+            },
+            language="en",
+        )
+
+        self.assertEqual(selected, ("en", manual_entry, "subtitles"))
+
+    def test_choose_subtitle_returns_none_when_target_language_missing(self):
+        selected = choose_subtitle(
+            {
+                "subtitles": {"zh-CN": [{"ext": "vtt", "url": "https://example.test/zh.vtt"}]},
+            },
+            language="en",
+        )
+
+        self.assertIsNone(selected)
+
+
+class TranscribeAudioTest(unittest.TestCase):
+    def run_transcribe_with_language(self, language: str) -> list[str]:
+        calls = []
+
+        class FakeWhisperModel:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def transcribe(self, *args, **kwargs):
+                calls.append(kwargs["language"])
+                segment = SimpleNamespace(text="hello", end=1)
+                info = SimpleNamespace(duration=1)
+                return [segment], info
+
+        fake_module = types.SimpleNamespace(WhisperModel=FakeWhisperModel)
+        with TemporaryDirectory() as directory, patch.dict(
+            sys.modules,
+            {"faster_whisper": fake_module},
+        ):
+            audio_path = Path(directory) / "audio.m4a"
+            audio_path.write_text("fake", encoding="utf-8")
+            transcribe_audio(
+                audio_path,
+                "small",
+                "cpu",
+                "int8",
+                language=language,
+            )
+
+        return calls
+
+    def test_transcribe_audio_passes_chinese_language(self):
+        self.assertEqual(self.run_transcribe_with_language("zh"), ["zh"])
+
+    def test_transcribe_audio_passes_english_language(self):
+        self.assertEqual(self.run_transcribe_with_language("en"), ["en"])
+
 
 class SubtitleParserTest(unittest.TestCase):
     def test_parse_vtt_or_srt_removes_metadata_timing_tags_and_duplicates(self):
@@ -77,6 +157,20 @@ STYLE
 """
 
         self.assertEqual(parse_vtt_or_srt(text), "你好 世界\n第二行\n")
+
+    def test_parse_vtt_or_srt_keeps_single_word_english_text(self):
+        text = """WEBVTT
+
+cue-1
+00:00:01.000 --> 00:00:02.000
+Hello
+
+2
+00:00:03.000 --> 00:00:04.000
+world
+"""
+
+        self.assertEqual(parse_vtt_or_srt(text), "Hello\nworld\n")
 
     def test_parse_ass_uses_format_text_field_and_cleans_override_tags(self):
         text = """[Events]

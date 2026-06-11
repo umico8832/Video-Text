@@ -55,6 +55,7 @@ from model_config import (
     MISSING_WHISPER_MODEL_MESSAGE,
     get_model_choices,
     get_model_description,
+    is_english_only_model,
     is_local_model_choice,
     is_preset_model,
     is_valid_model_dir,
@@ -1024,9 +1025,11 @@ class MainWindow(QMainWindow):
             return "正在获取视频信息"
         if "查找视频自带中文字幕" in message:
             return "正在查找已有中文字幕"
-        if "已找到视频自带中文字幕" in message:
+        if "查找视频自带英文字幕" in message:
+            return "正在查找已有英文字幕"
+        if "已找到视频自带中文字幕" in message or "已找到视频自带英文字幕" in message:
             return "正在下载字幕"
-        if "未找到可用中文字幕" in message:
+        if "未找到可用中文字幕" in message or "未找到可用英文字幕" in message:
             return "正在准备语音识别"
         if "下载音频" in message or "音频下载完成" in message:
             return "正在下载音频"
@@ -1237,6 +1240,7 @@ class MainWindow(QMainWindow):
             model_is_local=runtime_model.is_local,
             model_download_name=runtime_model.download_model,
             model_download_dir=runtime_model.download_dir,
+            subtitle_language="en" if is_english_only_model(selected_value) else "zh",
         )
         if runtime_model.download_model and runtime_model.download_dir:
             self.pending_extract_model_download = (
