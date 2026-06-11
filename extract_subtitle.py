@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import os
 import platform
-import re
 import subprocess
 import sys
 import tempfile
@@ -37,6 +36,7 @@ from media_downloader import (
     venv_tool_path,
     ydl_base_opts,
 )
+from output_paths import OUTPUT_DIR, build_output_path, sanitize_filename
 from subtitle_parser import (
     clean_lines,
     parse_ass,
@@ -63,7 +63,6 @@ from transcriber import (
 
 
 ROOT = Path(__file__).resolve().parent
-OUTPUT_DIR = ROOT / "outputs"
 IS_WINDOWS = platform.system() == "Windows"
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
@@ -118,23 +117,6 @@ def log(message: str, callback: LogCallback | None = None) -> None:
         callback(message)
     else:
         print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
-
-
-def sanitize_filename(value: str, max_len: int = 120) -> str:
-    value = re.sub(r"[\\/:*?\"<>|]+", "_", value).strip()
-    value = re.sub(r"\s+", " ", value)
-    return value[:max_len].strip(" .") or "video"
-
-
-def build_output_path(info: dict[str, Any], output_dir: str | Path | None = None) -> tuple[str, str, Path]:
-    title = sanitize_filename(info.get("title") or info.get("id") or "video")
-    video_id = sanitize_filename(str(info.get("id") or "video"))
-    if output_dir is None:
-        text_output_dir = OUTPUT_DIR
-    else:
-        text_output_dir = Path(output_dir)
-        text_output_dir.mkdir(parents=True, exist_ok=True)
-    return title, video_id, text_output_dir / f"{title}.{video_id}.txt"
 
 
 def log_cookie_usage(
