@@ -946,7 +946,16 @@ class MainWindow(QMainWindow):
         self.open_button.setEnabled(not busy)
         self.progress.setVisible(busy)
 
-    def start_worker(self, worker: QObject, done_signal, done_slot, log_signal=None) -> None:
+    def task_is_running(self) -> bool:
+        if self.thread is None:
+            return False
+        self.set_status("已有任务正在运行，请稍后再试")
+        self.append_log("已有任务正在运行，请稍后再试。")
+        return True
+
+    def start_worker(self, worker: QObject, done_signal, done_slot, log_signal=None) -> bool:
+        if self.thread is not None:
+            return False
         self.thread = QThread()
         self.worker = worker
         self.worker.moveToThread(self.thread)
@@ -959,8 +968,11 @@ class MainWindow(QMainWindow):
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.finished.connect(self.clear_worker)
         self.thread.start()
+        return True
 
     def run_env_task(self, action: str, autosave: bool = True) -> None:
+        if self.task_is_running():
+            return
         self.env_task_autosave = autosave
         if autosave:
             self.save_settings_now()
@@ -1012,6 +1024,8 @@ class MainWindow(QMainWindow):
         self.thread = None
 
     def start_extract(self) -> None:
+        if self.task_is_running():
+            return
         url = self.url_input.text().strip()
         if not url:
             QMessageBox.warning(self, "缺少链接", "请先输入视频链接。")
@@ -1089,6 +1103,8 @@ class MainWindow(QMainWindow):
         self.start_worker(worker, worker.done, self.extract_done, worker.log)
 
     def deploy_model(self) -> None:
+        if self.task_is_running():
+            return
         selected_value = self.model_combo.currentData()
         model = self.selected_model_value()
         if not selected_value or not model:

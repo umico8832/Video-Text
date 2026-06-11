@@ -29,6 +29,21 @@ class GuiSmokeTest(unittest.TestCase):
         finally:
             window.close()
 
+    def test_main_window_rejects_new_task_while_busy(self):
+        window = MainWindow(auto_check=False)
+        sentinel_thread = object()
+        try:
+            window.thread = sentinel_thread
+            window.run_env_task("check")
+
+            self.assertIs(window.thread, sentinel_thread)
+            self.assertIsNone(window.worker)
+            self.assertIn("已有任务正在运行", window.log_view.toPlainText())
+            self.assertIn("已有任务正在运行", window.result_label.text())
+        finally:
+            window.thread = None
+            window.close()
+
     def test_advanced_settings_dialog_constructs_tabs(self):
         window = MainWindow(auto_check=False)
         dialog = AdvancedSettingsDialog(window, auto_detect=False)
