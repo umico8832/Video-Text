@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from model_config import MODELS_DIR, get_model_settings_fields
@@ -42,10 +44,23 @@ def load_settings() -> dict:
 
 
 def save_settings(settings: dict) -> None:
-    SETTINGS_FILE.write_text(
-        json.dumps(settings, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    payload = json.dumps(settings, ensure_ascii=False, indent=2)
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=SETTINGS_FILE.parent,
+            delete=False,
+        ) as temp_file:
+            temp_file.write(payload)
+            temp_file.write("\n")
+            temp_name = temp_file.name
+        os.replace(temp_name, SETTINGS_FILE)
+    finally:
+        if temp_name and Path(temp_name).exists():
+            Path(temp_name).unlink()
 
 
 def normalize_output_dir(value: str | None) -> str:

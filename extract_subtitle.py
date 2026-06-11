@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -239,6 +240,37 @@ def resolve_yt_dlp_path(yt_dlp_path: str | None = None) -> str | None:
     return shutil.which("yt-dlp")
 
 
+def subprocess_hidden_kwargs() -> dict:
+    if not IS_WINDOWS:
+        return {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    return {"startupinfo": startupinfo}
+
+
+def should_use_yt_dlp_executable(yt_dlp_path: str | None = None) -> bool:
+    return bool(yt_dlp_path and Path(yt_dlp_path).exists())
+
+
+def add_yt_dlp_access_options(
+    cmd: list[str],
+    cookies: str | None = None,
+    ffmpeg_path: str | None = None,
+    cookies_from_browser: str | None = None,
+) -> None:
+    cmd.extend(["--add-header", f"Referer:{BROWSER_HEADERS['Referer']}"])
+    cmd.extend(["--add-header", f"User-Agent:{BROWSER_HEADERS['User-Agent']}"])
+    resolved_ffmpeg = resolve_ffmpeg_path(ffmpeg_path)
+    if resolved_ffmpeg:
+        cmd.extend(["--ffmpeg-location", resolved_ffmpeg])
+    if cookies_from_browser:
+        cmd.extend(["--cookies-from-browser", cookies_from_browser])
+    elif cookies:
+        cmd.extend(["--cookies", cookies])
+
+
 def ydl_base_opts(
     cookies: str | None = None,
     quiet: bool = True,
@@ -259,8 +291,66 @@ def ydl_base_opts(
     return opts
 
 
-def get_info(url: str, cookies: str | None, ffmpeg_path: str | None = None, cookies_from_browser: str | None = None) -> dict[str, Any]:
-    opts = ydl_base_opts(cookies=cookies, ffmpeg_path=ffmpeg_path, cookies_from_browser=cookies_from_browser)
+def get_info_with_executable(
+    url: str,
+    yt_dlp_path: str,
+    cookies: str | None,
+    ffmpeg_path: str | None = None,
+    cookies_from_browser: str | None = None,
+) -> dict[str, Any]:
+    cmd = [
+        yt_dlp_path,
+        "--dump-single-json",
+        "--skip-download",
+        "--no-playlist",
+        "--quiet",
+        "--no-warnings",
+    ]
+    add_yt_dlp_access_options(cmd, cookies, ffmpeg_path, cookies_from_browser)
+    cmd.append(url)
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+        **subprocess_hidden_kwargs(),
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(detail or f"yt-dlp 执行失败，退出码：{result.returncode}")
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"yt-dlp 返回的视频信息不是有效 JSON。\n详情：{exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("yt-dlp 返回的视频信息格式不可用。")
+    return data
+
+
+def get_info(
+    url: str,
+    cookies: str | None,
+    ffmpeg_path: str | None = None,
+    yt_dlp_path: str | None = None,
+    cookies_from_browser: str | None = None,
+) -> dict[str, Any]:
+    if should_use_yt_dlp_executable(yt_dlp_path):
+        return get_info_with_executable(
+            url,
+            str(yt_dlp_path),
+            cookies,
+            ffmpeg_path=ffmpeg_path,
+            cookies_from_browser=cookies_from_browser,
+        )
+    opts = ydl_base_opts(
+        cookies=cookies,
+        ffmpeg_path=ffmpeg_path,
+        cookies_from_browser=cookies_from_browser,
+    )
     opts["skip_download"] = True
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -418,10 +508,54 @@ def download_audio(
     workdir: Path,
     cookies: str | None,
     ffmpeg_path: str | None = None,
+    yt_dlp_path: str | None = None,
     log_callback: LogCallback | None = None,
     cookies_from_browser: str | None = None,
 ) -> Path:
     audio_template = str(workdir / "audio.%(ext)s")
+
+    if should_use_yt_dlp_executable(yt_dlp_path):
+        cmd = [
+            str(yt_dlp_path),
+            "--newline",
+            "-f",
+            "bestaudio/best",
+            "-o",
+            audio_template,
+            "--extract-audio",
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "192K",
+            "--no-playlist",
+        ]
+        add_yt_dlp_access_options(cmd, cookies, ffmpeg_path, cookies_from_browser)
+        cmd.append(url)
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(workdir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            **subprocess_hidden_kwargs(),
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            line = line.strip()
+            if line and log_callback:
+                log_callback(line)
+        exit_code = process.wait()
+        if exit_code != 0:
+            raise RuntimeError(f"yt-dlp 音频下载失败，退出码：{exit_code}")
+
+        candidates = sorted(workdir.glob("audio.*"))
+        if not candidates:
+            raise RuntimeError("音频下载后没有找到输出文件")
+        preferred = [item for item in candidates if item.suffix.lower() == ".mp3"]
+        return preferred[0] if preferred else candidates[0]
 
     def hook(status: dict[str, Any]) -> None:
         if status.get("status") == "downloading":
@@ -588,41 +722,7 @@ def ensure_local_whisper_model(
     return str(target_dir)
 
 
-def extract(
-    url: str,
-    model: str | None,
-    device: str,
-    compute_type: str,
-    cookies: str | None,
-    ffmpeg_path: str | None = None,
-    yt_dlp_path: str | None = None,
-    log_callback: LogCallback | None = None,
-    cookies_from_browser: str | None = None,
-    output_dir: str | Path | None = None,
-    model_display_name: str | None = None,
-    model_is_local: bool | None = None,
-    model_download_name: str | None = None,
-    model_download_dir: str | Path | None = None,
-) -> Path:
-    OUTPUT_DIR.mkdir(exist_ok=True)
-
-    log("正在获取视频信息...", log_callback)
-    try:
-        info = get_info(url, cookies, ffmpeg_path=ffmpeg_path, cookies_from_browser=cookies_from_browser)
-    except Exception as exc:
-        raise RuntimeError(
-            format_download_error(
-                url,
-                exc,
-                "下载失败：无法获取视频信息。请检查链接是否有效，或稍后重试。",
-                cookies_from_browser,
-            )
-        ) from exc
-    if cookies_from_browser:
-        browser_name = browser_display_name(cookies_from_browser)
-        log(f"已启用 {browser_name} Cookies，本次请求将使用浏览器登录态。", log_callback)
-    elif cookies:
-        log(f"已使用 cookies.txt 文件：{cookie_file_display_name(cookies)}。", log_callback)
+def build_output_path(info: dict[str, Any], output_dir: str | Path | None = None) -> tuple[str, str, Path]:
     title = sanitize_filename(info.get("title") or info.get("id") or "video")
     video_id = sanitize_filename(str(info.get("id") or "video"))
     if output_dir is None:
@@ -630,24 +730,63 @@ def extract(
     else:
         text_output_dir = Path(output_dir)
         text_output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = text_output_dir / f"{title}.{video_id}.txt"
+    return title, video_id, text_output_dir / f"{title}.{video_id}.txt"
 
+
+def log_cookie_usage(
+    cookies: str | None,
+    cookies_from_browser: str | None = None,
+    log_callback: LogCallback | None = None,
+) -> None:
+    if cookies_from_browser:
+        browser_name = browser_display_name(cookies_from_browser)
+        log(f"已启用 {browser_name} Cookies，本次请求将使用浏览器登录态。", log_callback)
+    elif cookies:
+        log(f"已使用 cookies.txt 文件：{cookie_file_display_name(cookies)}。", log_callback)
+
+
+def extract_existing_subtitle(
+    info: dict[str, Any],
+    title: str,
+    video_id: str,
+    output_path: Path,
+    log_callback: LogCallback | None = None,
+) -> Path | None:
     log("正在查找视频自带中文字幕...", log_callback)
     selected = choose_subtitle(info)
-    if selected:
-        lang, entry, source_name = selected
-        ext = (entry.get("ext") or "vtt").lower()
-        source_label = "人工字幕" if source_name == "subtitles" else "自动字幕"
-        log(f"已找到视频自带中文字幕：{source_label} {lang} / {ext}，开始下载字幕...", log_callback)
-        raw_path = OUTPUT_DIR / f"{title}.{video_id}.{lang}.{ext}"
-        try:
-            download_subtitle(entry, raw_path)
-            output_path.write_text(subtitle_to_text(raw_path, ext), encoding="utf-8")
-        except Exception as exc:
-            raise RuntimeError(f"保存失败：无法下载或写入字幕文本，请检查输出目录权限。\n详情：{exc}") from exc
-        log(f"字幕文本已保存到：{output_path}", log_callback)
-        return output_path
+    if not selected:
+        return None
 
+    lang, entry, source_name = selected
+    ext = (entry.get("ext") or "vtt").lower()
+    source_label = "人工字幕" if source_name == "subtitles" else "自动字幕"
+    log(f"已找到视频自带中文字幕：{source_label} {lang} / {ext}，开始下载字幕...", log_callback)
+    raw_path = OUTPUT_DIR / f"{title}.{video_id}.{lang}.{ext}"
+    try:
+        download_subtitle(entry, raw_path)
+        output_path.write_text(subtitle_to_text(raw_path, ext), encoding="utf-8")
+    except Exception as exc:
+        raise RuntimeError(f"保存失败：无法下载或写入字幕文本，请检查输出目录权限。\n详情：{exc}") from exc
+    log(f"字幕文本已保存到：{output_path}", log_callback)
+    return output_path
+
+
+def transcribe_missing_subtitle(
+    url: str,
+    model: str | None,
+    device: str,
+    compute_type: str,
+    cookies: str | None,
+    output_path: Path,
+    ffmpeg_path: str | None = None,
+    yt_dlp_path: str | None = None,
+    log_callback: LogCallback | None = None,
+    cookies_from_browser: str | None = None,
+    model_display_name: str | None = None,
+    model_is_local: bool | None = None,
+    model_download_name: str | None = None,
+    model_download_dir: str | Path | None = None,
+) -> Path:
     log("未找到可用中文字幕，开始下载音频并准备语音识别...", log_callback)
     model_name = (model or "").strip()
     if not model_name:
@@ -668,7 +807,15 @@ def extract(
     with tempfile.TemporaryDirectory(prefix="video-text-", dir=str(ROOT)) as temp_dir:
         workdir = Path(temp_dir)
         try:
-            audio_path = download_audio(url, workdir, cookies, ffmpeg_path=ffmpeg_path, log_callback=log_callback, cookies_from_browser=cookies_from_browser)
+            audio_path = download_audio(
+                url,
+                workdir,
+                cookies,
+                ffmpeg_path=ffmpeg_path,
+                yt_dlp_path=yt_dlp_path,
+                log_callback=log_callback,
+                cookies_from_browser=cookies_from_browser,
+            )
         except Exception as exc:
             raise RuntimeError(
                 format_download_error(
@@ -694,6 +841,67 @@ def extract(
             raise RuntimeError(f"保存失败：无法写入输出目录，请检查目录权限。\n详情：{exc}") from exc
         log(f"字幕文本已保存到：{output_path}", log_callback)
         return output_path
+
+
+def extract(
+    url: str,
+    model: str | None,
+    device: str,
+    compute_type: str,
+    cookies: str | None,
+    ffmpeg_path: str | None = None,
+    yt_dlp_path: str | None = None,
+    log_callback: LogCallback | None = None,
+    cookies_from_browser: str | None = None,
+    output_dir: str | Path | None = None,
+    model_display_name: str | None = None,
+    model_is_local: bool | None = None,
+    model_download_name: str | None = None,
+    model_download_dir: str | Path | None = None,
+) -> Path:
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    log("正在获取视频信息...", log_callback)
+    try:
+        info = get_info(
+            url,
+            cookies,
+            ffmpeg_path=ffmpeg_path,
+            yt_dlp_path=yt_dlp_path,
+            cookies_from_browser=cookies_from_browser,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            format_download_error(
+                url,
+                exc,
+                "下载失败：无法获取视频信息。请检查链接是否有效，或稍后重试。",
+                cookies_from_browser,
+            )
+        ) from exc
+    log_cookie_usage(cookies, cookies_from_browser, log_callback)
+    title, video_id, output_path = build_output_path(info, output_dir)
+
+    subtitle_output = extract_existing_subtitle(info, title, video_id, output_path, log_callback)
+    if subtitle_output is not None:
+        return subtitle_output
+
+    return transcribe_missing_subtitle(
+        url,
+        model,
+        device,
+        compute_type,
+        cookies,
+        output_path,
+        ffmpeg_path=ffmpeg_path,
+        yt_dlp_path=yt_dlp_path,
+        log_callback=log_callback,
+        cookies_from_browser=cookies_from_browser,
+        model_display_name=model_display_name,
+        model_is_local=model_is_local,
+        model_download_name=model_download_name,
+        model_download_dir=model_download_dir,
+    )
 
 
 def parse_args() -> argparse.Namespace:

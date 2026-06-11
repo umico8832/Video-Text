@@ -1094,6 +1094,20 @@ class MainWindow(QMainWindow):
         self.open_button.setEnabled(not busy)
         self.progress.setVisible(busy)
 
+    def start_worker(self, worker: QObject, done_signal, done_slot, log_signal=None) -> None:
+        self.thread = QThread()
+        self.worker = worker
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        if log_signal is not None:
+            log_signal.connect(self.append_log)
+        done_signal.connect(done_slot)
+        done_signal.connect(self.thread.quit)
+        done_signal.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self.clear_worker)
+        self.thread.start()
+
     def run_env_task(self, action: str, autosave: bool = True) -> None:
         self.env_task_autosave = autosave
         if autosave:
@@ -1120,21 +1134,12 @@ class MainWindow(QMainWindow):
             self.set_status("正在安装 GPU 加速组件")
         self.env_ready = False
         self.refresh_buttons(True)
-        self.thread = QThread()
-        self.worker = EnvWorker(
+        worker = EnvWorker(
             self.ffmpeg_input.text(),
             self.ytdlp_input.text(),
             action,
         )
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.log.connect(self.append_log)
-        self.worker.done.connect(self.env_done)
-        self.worker.done.connect(self.thread.quit)
-        self.worker.done.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.finished.connect(self.clear_worker)
-        self.thread.start()
+        self.start_worker(worker, worker.done, self.env_done, worker.log)
 
     def env_done(self, ok: bool, report: dict) -> None:
         self.env_ready = ok
@@ -1219,8 +1224,7 @@ class MainWindow(QMainWindow):
             cookies = ""
             self.append_log("未启用 Cookies，本次请求不会使用登录态。")
 
-        self.thread = QThread()
-        self.worker = ExtractWorker(
+        worker = ExtractWorker(
             url=url,
             model=runtime_model.model,
             device=self.device_combo.currentText(),
@@ -1239,15 +1243,7 @@ class MainWindow(QMainWindow):
                 runtime_model.download_model,
                 runtime_model.download_dir,
             )
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.log.connect(self.append_log)
-        self.worker.done.connect(self.extract_done)
-        self.worker.done.connect(self.thread.quit)
-        self.worker.done.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.finished.connect(self.clear_worker)
-        self.thread.start()
+        self.start_worker(worker, worker.done, self.extract_done, worker.log)
 
     def deploy_model(self) -> None:
         selected_value = self.model_combo.currentData()
@@ -1270,16 +1266,8 @@ class MainWindow(QMainWindow):
         )
         self.set_status("正在部署模型" if model_source == "preset" else "正在检查本地模型目录")
         self.refresh_buttons(True)
-        self.thread = QThread()
-        self.worker = ModelDeployWorker(model_source, model, self.selected_models_dir())
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.done.connect(self.model_deploy_done)
-        self.worker.done.connect(self.thread.quit)
-        self.worker.done.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.finished.connect(self.clear_worker)
-        self.thread.start()
+        worker = ModelDeployWorker(model_source, model, self.selected_models_dir())
+        self.start_worker(worker, worker.done, self.model_deploy_done)
 
     def model_deploy_done(self, ok: bool, message: str) -> None:
         selected_value = self.model_combo.currentData()

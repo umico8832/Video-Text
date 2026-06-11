@@ -570,16 +570,8 @@ class AdvancedSettingsDialog(QDialog):
         self.main_window.set_status("正在部署模型" if model_source == "preset" else "正在检查本地模型目录")
         self.advanced_action_status.setText("正在部署模型，请稍候。" if model_source == "preset" else "正在检查本地模型目录。")
         self.set_busy(True)
-        self.thread = QThread()
-        self.worker = ModelDeployWorker(model_source, model, self.main_window.selected_models_dir())
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.done.connect(self.model_deploy_done)
-        self.worker.done.connect(self.thread.quit)
-        self.worker.done.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.finished.connect(self.clear_worker)
-        self.thread.start()
+        worker = ModelDeployWorker(model_source, model, self.main_window.selected_models_dir())
+        self.start_worker(worker, worker.done, self.model_deploy_done)
 
     def model_deploy_done(self, ok: bool, message: str) -> None:
         if ok:
@@ -658,18 +650,23 @@ class AdvancedSettingsDialog(QDialog):
         self.ytdlp_card.set_pending(label)
         self.set_run_info_pending(label)
         self.set_busy(True)
-        self.thread = QThread()
-        self.worker = EnvWorker(
+        worker = EnvWorker(
             self.main_window.ffmpeg_input.text(),
             self.main_window.ytdlp_input.text(),
             action,
         )
+        self.start_worker(worker, worker.done, self.detection_done, worker.log)
+
+    def start_worker(self, worker: QObject, done_signal, done_slot, log_signal=None) -> None:
+        self.thread = QThread()
+        self.worker = worker
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
-        self.worker.log.connect(self.main_window.append_log)
-        self.worker.done.connect(self.detection_done)
-        self.worker.done.connect(self.thread.quit)
-        self.worker.done.connect(self.worker.deleteLater)
+        if log_signal is not None:
+            log_signal.connect(self.main_window.append_log)
+        done_signal.connect(done_slot)
+        done_signal.connect(self.thread.quit)
+        done_signal.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.finished.connect(self.clear_worker)
         self.thread.start()

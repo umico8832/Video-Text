@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ GPU_PACKAGES = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
 IS_WINDOWS = platform.system() == "Windows"
 
 LogCallback = Callable[[str], None]
+SENSITIVE_COMMAND_MARKERS = ("token", "password", "passwd", "secret", "cookie")
 
 
 def subprocess_hidden_kwargs() -> dict:
@@ -302,8 +304,29 @@ def packages_for_missing(missing: list[str]) -> list[str]:
     return packages
 
 
+def format_command_for_log(cmd: list[str]) -> str:
+    safe_parts: list[str] = []
+    hide_next = False
+    for part in cmd:
+        lowered = part.lower()
+        if hide_next:
+            safe_parts.append("***")
+            hide_next = False
+            continue
+        if any(marker in lowered for marker in SENSITIVE_COMMAND_MARKERS):
+            if "=" in part:
+                key, _value = part.split("=", 1)
+                safe_parts.append(f"{key}=***")
+            else:
+                safe_parts.append(part)
+                hide_next = part.startswith("-")
+            continue
+        safe_parts.append(part)
+    return " ".join(shlex.quote(part) for part in safe_parts)
+
+
 def run_command_with_log(cmd: list[str], log: LogCallback, cwd: Path = ROOT) -> None:
-    log(f"执行命令：{' '.join(cmd)}")
+    log(f"执行命令：{format_command_for_log(cmd)}")
     process = subprocess.Popen(
         cmd,
         cwd=str(cwd),
@@ -318,8 +341,9 @@ def run_command_with_log(cmd: list[str], log: LogCallback, cwd: Path = ROOT) -> 
         line = line.strip()
         if line:
             log(line)
-    if process.wait() != 0:
-        raise RuntimeError("命令执行失败")
+    exit_code = process.wait()
+    if exit_code != 0:
+        raise RuntimeError(f"命令执行失败，退出码：{exit_code}")
 
 
 def ensure_ffmpeg_link() -> None:
