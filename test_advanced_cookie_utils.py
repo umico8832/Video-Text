@@ -16,8 +16,8 @@ class AdvancedCookieUtilsTest(unittest.TestCase):
         self.assertEqual(cookie_option_description("unknown"), cookie_option_description("none"))
 
     def test_cookie_option_styles_reflect_selection(self):
-        self.assertIn("#eef6ff", cookie_option_frame_style(True))
-        self.assertIn("#f9fbfd", cookie_option_frame_style(False))
+        self.assertIn("#f5f9ff", cookie_option_frame_style(True))
+        self.assertIn("#ffffff", cookie_option_frame_style(False))
         self.assertIn("#1d4ed8", cookie_option_radio_style(True))
         self.assertIn("#172033", cookie_option_radio_style(False))
 
