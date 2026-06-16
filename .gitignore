@@ -4,6 +4,7 @@ __pycache__/
 
 build/
 dist/
+release/
 .launcher-build/
 *.spec.bak
 

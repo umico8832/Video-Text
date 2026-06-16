@@ -18,7 +18,11 @@ REQ_STAMP_NAME = ".requirements.sha256"
 
 def app_dir() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        exe_dir = Path(sys.executable).resolve().parent
+        bundled_app_dir = exe_dir / "app"
+        if bundled_app_dir.exists():
+            return bundled_app_dir
+        return exe_dir
     return Path(__file__).resolve().parent
 
 
