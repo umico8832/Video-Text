@@ -300,10 +300,14 @@ release/Video-Text-Setup-v0.1.0.exe
 ```
 
 安装器支持选择安装目录、创建开始菜单快捷方式、可选创建桌面快捷方式，并带
-Windows 卸载入口。需要把当前 `models/` 目录一起放入安装包时，可以加：
+Windows 卸载入口。安装包默认内置 `requirements.txt` 对应的 Python 依赖
+wheel，用户仍需自行安装 Python 3.12。需要把当前 `models/` 目录一起放入安
+装包时，可以加：
 
 ```powershell
 .\scripts\package_installer.ps1 -Version v0.1.0 -IncludeModels
 ```
+
+如果只想生成不带内置依赖 wheel 的轻量安装包，可以加 `-SkipWheels`。
 
 本地构建产物不会提交到仓库。

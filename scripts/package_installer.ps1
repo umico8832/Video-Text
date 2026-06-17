@@ -1,6 +1,7 @@
 param(
     [string]$Version = "v0.1.0",
     [switch]$IncludeModels,
+    [switch]$SkipWheels,
     [string]$InnoSetupCompiler = ""
 )
 
@@ -11,6 +12,7 @@ $releaseRoot = Join-Path $root "release"
 $stagingDir = Join-Path $releaseRoot "installer-staging"
 $payloadDir = Join-Path $stagingDir "payload"
 $appDir = Join-Path $payloadDir "app"
+$wheelsDir = Join-Path $appDir "wheels"
 $installerDir = Join-Path $root "installer"
 $installerScript = Join-Path $installerDir "VideoTextInstaller.iss"
 $outputExe = Join-Path $releaseRoot "Video-Text-Setup-$Version.exe"
@@ -65,7 +67,39 @@ function Copy-RuntimeFile {
     Copy-Item -Force -LiteralPath $source -Destination (Join-Path $appDir $RelativePath)
 }
 
-if (-not (Test-Path -LiteralPath $launcherSource) -and -not (Test-Path -LiteralPath $launcherChineseSource)) {
+function Resolve-Python312 {
+    if (Test-Python312 -Exe "py" -Args @("-3.12")) {
+        return @{ Exe = "py"; Args = @("-3.12") }
+    }
+    if (Test-Python312 -Exe "python") {
+        return @{ Exe = "python"; Args = @() }
+    }
+    throw "Python 3.12 was not found. Install Python 3.12 and enable PATH."
+}
+
+function Test-Python312 {
+    param(
+        [string]$Exe,
+        [string[]]$Args = @()
+    )
+
+    try {
+        $version = & $Exe @Args -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        return $LASTEXITCODE -eq 0 -and $version.Trim() -eq "3.12"
+    } catch {
+        return $false
+    }
+}
+
+$launcherScript = Join-Path $root "launcher.py"
+$launcherOutdated = $true
+if (Test-Path -LiteralPath $launcherChineseSource) {
+    $launcherOutdated = (Get-Item -LiteralPath $launcherChineseSource).LastWriteTime -lt (Get-Item -LiteralPath $launcherScript).LastWriteTime
+} elseif (Test-Path -LiteralPath $launcherSource) {
+    $launcherOutdated = (Get-Item -LiteralPath $launcherSource).LastWriteTime -lt (Get-Item -LiteralPath $launcherScript).LastWriteTime
+}
+
+if ($launcherOutdated) {
     & (Join-Path $root "build_launcher.ps1")
 }
 
@@ -134,6 +168,18 @@ if ($IncludeModels) {
     }
 }
 
+if (-not $SkipWheels) {
+    New-Item -ItemType Directory -Force -Path $wheelsDir | Out-Null
+    $python = Resolve-Python312
+    & $python.Exe @($python.Args) -m pip download `
+        --only-binary=:all: `
+        --dest $wheelsDir `
+        -r (Join-Path $root "requirements.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to download bundled wheels."
+    }
+}
+
 $iscc = Resolve-InnoSetupCompiler -ConfiguredPath $InnoSetupCompiler
 if (Test-Path -LiteralPath $outputExe) {
     Remove-Item -Force -LiteralPath $outputExe
@@ -154,6 +200,9 @@ Write-Host "  - install directory selection"
 Write-Host "  - optional desktop shortcut"
 Write-Host "  - Start Menu shortcut"
 Write-Host "  - Windows uninstall entry"
+if (-not $SkipWheels) {
+    Write-Host "  - bundled Python dependency wheels"
+}
 if ($IncludeModels) {
     Write-Host "  - bundled models directory"
 }

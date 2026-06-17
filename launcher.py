@@ -34,6 +34,7 @@ VENV_PYTHONW = VENV_DIR / "Scripts" / "pythonw.exe"
 REQUIREMENTS = ROOT / "requirements.txt"
 GUI_SCRIPT = ROOT / "video_text_gui.py"
 REQ_STAMP = VENV_DIR / REQ_STAMP_NAME
+WHEELS_DIR = ROOT / "wheels"
 
 
 def log(message: str) -> None:
@@ -145,8 +146,22 @@ def create_venv() -> None:
 
 def install_requirements() -> None:
     log("安装/更新基础依赖")
-    run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade", "pip"])
-    run([str(VENV_PYTHON), "-m", "pip", "install", "-r", str(REQUIREMENTS)])
+    if WHEELS_DIR.exists():
+        log(f"使用内置依赖包：{WHEELS_DIR}")
+        run([
+            str(VENV_PYTHON),
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--find-links",
+            str(WHEELS_DIR),
+            "-r",
+            str(REQUIREMENTS),
+        ])
+    else:
+        run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade", "pip"])
+        run([str(VENV_PYTHON), "-m", "pip", "install", "-r", str(REQUIREMENTS)])
     REQ_STAMP.write_text(requirements_hash(), encoding="utf-8")
 
 

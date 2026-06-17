@@ -118,6 +118,10 @@ The installer includes:
 - optional desktop shortcut;
 - Windows uninstall entry;
 - the launcher exe and application runtime files.
+- bundled Python dependency wheels from `requirements.txt`.
+
+Python 3.12 itself is not bundled. Users still need to install Python 3.12 before
+launching the app.
 
 To bundle the current local `models\` directory as well, run:
 
@@ -130,6 +134,8 @@ If Inno Setup is installed in a custom location, pass the compiler explicitly:
 ```powershell
 .\scripts\package_installer.ps1 -Version v0.1.0 -InnoSetupCompiler "C:\Path\To\ISCC.exe"
 ```
+
+To build a smaller installer without bundled dependency wheels, add `-SkipWheels`.
 
 For release, package the root `视频字幕提取.exe` with:
 
