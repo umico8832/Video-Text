@@ -1,8 +1,8 @@
-# Windows portable setup
+# Windows setup
 
-This project is intended to be distributed as a lightweight portable Windows tool.
-Users provide Python. The app creates and uses a local `.venv` next to the project
-files.
+This project can be distributed as either a lightweight portable Windows tool or
+a standard Windows installer. Users still provide Python 3.12. The app creates
+and uses a local `.venv` next to the installed project files.
 
 ## User quick start
 
@@ -96,6 +96,40 @@ The build script also copies the exe to the project root as:
 
 This exe is only a launcher. It does not bundle the full GUI application,
 PySide6, Whisper, model files, or GPU libraries.
+
+## Developer: build the installer wizard
+
+Install Inno Setup 6, then run:
+
+```powershell
+.\scripts\package_installer.ps1 -Version v0.1.0
+```
+
+The installer will be created at:
+
+```text
+release\Video-Text-Setup-v0.1.0.exe
+```
+
+The installer includes:
+
+- install directory selection;
+- Start Menu shortcut;
+- optional desktop shortcut;
+- Windows uninstall entry;
+- the launcher exe and application runtime files.
+
+To bundle the current local `models\` directory as well, run:
+
+```powershell
+.\scripts\package_installer.ps1 -Version v0.1.0 -IncludeModels
+```
+
+If Inno Setup is installed in a custom location, pass the compiler explicitly:
+
+```powershell
+.\scripts\package_installer.ps1 -Version v0.1.0 -InnoSetupCompiler "C:\Path\To\ISCC.exe"
+```
 
 For release, package the root `视频字幕提取.exe` with:
 

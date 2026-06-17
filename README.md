@@ -286,4 +286,24 @@ outputs/
 .\build_launcher.ps1
 ```
 
+构建 Windows 安装向导：
+
+```powershell
+.\scripts\package_installer.ps1 -Version v0.1.0
+```
+
+安装向导使用 Inno Setup 6 生成，需要先安装 Inno Setup，或通过
+`-InnoSetupCompiler` 指定 `ISCC.exe` 路径。生成结果位于：
+
+```text
+release/Video-Text-Setup-v0.1.0.exe
+```
+
+安装器支持选择安装目录、创建开始菜单快捷方式、可选创建桌面快捷方式，并带
+Windows 卸载入口。需要把当前 `models/` 目录一起放入安装包时，可以加：
+
+```powershell
+.\scripts\package_installer.ps1 -Version v0.1.0 -IncludeModels
+```
+
 本地构建产物不会提交到仓库。
