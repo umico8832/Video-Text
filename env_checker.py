@@ -131,13 +131,23 @@ def check_ffmpeg(ffmpeg_path: str | None = None) -> dict:
         }
     bundled_ffmpeg = str(bundled_ffmpeg_path) if bundled_ffmpeg_path.exists() else None
     system_ffmpeg = shutil.which("ffmpeg")
-    ffmpeg = bundled_ffmpeg or system_ffmpeg
-    ffmpeg_source = "内置工具" if bundled_ffmpeg else "系统 PATH" if system_ffmpeg else "缺失"
+    imageio_ffmpeg = check_imageio_ffmpeg()
+    ffmpeg = bundled_ffmpeg or system_ffmpeg or imageio_ffmpeg.get("path")
+    ffmpeg_source = (
+        "内置工具"
+        if bundled_ffmpeg
+        else "系统 PATH"
+        if system_ffmpeg
+        else imageio_ffmpeg.get("source")
+        if imageio_ffmpeg.get("ok")
+        else "缺失"
+    )
     return {
         "ok": bool(ffmpeg),
         "path": ffmpeg or "",
         "source": ffmpeg_source,
         "version": command_version(ffmpeg) if ffmpeg else "",
+        "error": imageio_ffmpeg.get("error", "") if not ffmpeg else "",
     }
 
 
@@ -168,18 +178,11 @@ def check_ytdlp(yt_dlp_path: str | None = None) -> dict:
 
 def check_faster_whisper() -> dict:
     whisper_version = package_version("faster-whisper")
-    whisper_ok = bool(whisper_version)
-    whisper_error = ""
-    try:
-        from faster_whisper import WhisperModel  # noqa: F401
-    except Exception as exc:
-        whisper_ok = False
-        whisper_error = str(exc)
     return {
-        "ok": whisper_ok,
+        "ok": bool(whisper_version),
         "path": "faster-whisper",
         "version": whisper_version,
-        "error": whisper_error,
+        "error": "" if whisper_version else "未安装 faster-whisper",
     }
 
 
@@ -236,11 +239,14 @@ def check_environment(ffmpeg_path: str | None = None, yt_dlp_path: str | None = 
     emit = log or (lambda _message: None)
 
     emit("检查 FFmpeg")
+    ensure_ffmpeg_link()
     ffmpeg = check_ffmpeg(ffmpeg_path)
     if ffmpeg["ok"]:
-        emit(f"FFmpeg 已找到：{ffmpeg['source']} / {ffmpeg['path']}")
+        version_detail = f" / {ffmpeg['version']}" if ffmpeg.get("version") else ""
+        emit(f"FFmpeg 已找到：{ffmpeg['source']} / {ffmpeg['path']}{version_detail}")
     else:
-        emit("FFmpeg 缺失：未在用户指定路径、软件目录或系统 PATH 中找到")
+        detail = f"；原因：{ffmpeg['error']}" if ffmpeg.get("error") else ""
+        emit(f"FFmpeg 缺失：未在用户指定路径、软件目录、系统 PATH 或 imageio-ffmpeg 中找到{detail}")
 
     emit("检查 yt-dlp")
     ytdlp = check_ytdlp(yt_dlp_path)
@@ -351,11 +357,14 @@ def ensure_ffmpeg_link() -> None:
 
         ffmpeg = extract_subtitle.resolve_ffmpeg_path()
     if ffmpeg and Path(ffmpeg).exists() and Path(ffmpeg) != target:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if IS_WINDOWS:
-            shutil.copy2(ffmpeg, target)
-        else:
-            target.symlink_to(ffmpeg)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if IS_WINDOWS:
+                shutil.copy2(ffmpeg, target)
+            else:
+                target.symlink_to(ffmpeg)
+        except OSError:
+            pass
 
 
 def build_env_summary(report: dict, ok: bool) -> str:
